@@ -1,0 +1,1508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>多功能图片处理工具集 - OCR匹配 & 格式转换一体化</title>
+
+    <!-- 外部依赖 -->
+    <script src="https://cdn.jsdelivr.net/npm/string-similarity@4.0.4/umd/string-similarity.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .main-container {
+            max-width: 100%; margin: 20px; background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px; padding: 20px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            min-height: calc(100vh - 40px);
+        }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 {
+            color: #333; font-size: 2.5em; font-weight: 300; margin-bottom: 10px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+        .header p { color: #666; font-size: 1.2em; margin-bottom: 20px; }
+
+        .workflow-container { display: flex; flex-direction: column; gap: 30px; }
+        .step-section {
+            background: #f8f9fa; border-radius: 15px; padding: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); border-left: 5px solid #667eea;
+        }
+        .step-header { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
+        .step-number {
+            background: linear-gradient(45deg, #667eea, #764ba2); color: white;
+            width: 40px; height: 40px; border-radius: 50%; display: flex;
+            align-items: center; justify-content: center; font-weight: bold; font-size: 1.2em;
+        }
+        .step-title { color: #333; font-size: 1.5em; font-weight: 600; }
+
+        .upload-section { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .upload-group {
+            background: white; border: 2px dashed #dee2e6; border-radius: 10px;
+            padding: 20px; text-align: center; cursor: pointer; transition: all 0.3s ease;
+        }
+        .upload-group:hover { border-color: #667eea; background: #f8f9ff; }
+        .upload-group.drag-over { border-color: #667eea; background: #e3f2fd; transform: scale(1.02); }
+        .upload-icon { font-size: 3em; margin-bottom: 10px; color: #667eea; }
+        .upload-text { color: #495057; font-weight: 600; margin-bottom: 5px; }
+        .upload-hint { color: #6c757d; font-size: 0.9em; }
+        .file-count {
+            margin-top: 10px; padding: 5px 10px; background: #e3f2fd;
+            border-radius: 15px; color: #1976d2; font-weight: 500; display: inline-block;
+        }
+
+        .preview-container {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;
+            min-height: 650px;
+        }
+        .preview-section {
+            background: white; border-radius: 10px; padding: 15px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .preview-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #f1f1f1;
+        }
+        .preview-title { font-weight: 600; color: #495057; display: flex; align-items: center; gap: 8px; }
+        .preview-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 15px; max-height: 600px; overflow-y: auto; padding: 10px;
+        }
+
+        .image-item {
+            background: #f8f9fa; border-radius: 8px; padding: 10px; text-align: center;
+            cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent; position: relative;
+        }
+        .image-item:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }
+        .image-item.selected {
+            border-color: #667eea !important;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3) !important;
+            transform: scale(1.05) !important;
+            z-index: 10;
+        }
+        .image-item.matched { border-color: #28a745; background: #f8fff9; }
+        .image-item.unmatched { border-color: #dc3545; background: #fff5f5; opacity: 0.8; }
+        .image-item.unmatched:hover { opacity: 1; }
+        .image-item img {
+            width: 100%; height: 120px; object-fit: contain;
+            border-radius: 6px; margin-bottom: 8px;
+        }
+        .image-filename {
+            font-size: 12px; font-weight: 600; margin-bottom: 5px;
+            word-break: break-all; line-height: 1.3;
+        }
+        .image-ocr-text {
+            font-size: 11px; color: #666; background: #e9ecef;
+            padding: 4px 6px; border-radius: 4px; margin-bottom: 5px;
+            max-height: 40px; overflow: hidden;
+        }
+        .image-resolution { font-size: 10px; color: #999; font-style: italic; }
+
+        .delete-btn {
+            position: absolute; top: 5px; right: 5px; background: rgba(255, 255, 255, 0.9);
+            border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer;
+            font-size: 14px; color: #dc3545; display: none; align-items: center; justify-content: center;
+        }
+        .image-item:hover .delete-btn { display: flex; }
+
+        .controls {
+            display: flex; flex-wrap: wrap; gap: 15px; justify-content: center;
+            margin: 20px 0; padding: 20px; background: linear-gradient(45deg, #f8f9fa, #e9ecef);
+            border-radius: 10px;
+        }
+        .btn {
+            padding: 12px 24px; font-size: 14px; font-weight: 600; border: none;
+            border-radius: 25px; cursor: pointer; transition: all 0.3s ease;
+            text-transform: uppercase; letter-spacing: 0.5px; min-width: 140px;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+        .btn-primary {
+            background: linear-gradient(45deg, #4CAF50, #45a049); color: white;
+            box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
+        }
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px); box-shadow: 0 6px 12px rgba(76, 175, 80, 0.4);
+        }
+        .btn-secondary {
+            background: linear-gradient(45deg, #2196F3, #1976D2); color: white;
+            box-shadow: 0 4px 8px rgba(33, 150, 243, 0.3);
+        }
+        .btn-secondary:hover:not(:disabled) {
+            transform: translateY(-2px); box-shadow: 0 6px 12px rgba(33, 150, 243, 0.4);
+        }
+        .btn-warning {
+            background: linear-gradient(45deg, #FF9800, #F57C00); color: white;
+            box-shadow: 0 4px 8px rgba(255, 152, 0, 0.3);
+        }
+        .btn-warning:hover:not(:disabled) {
+            transform: translateY(-2px); box-shadow: 0 6px 12px rgba(255, 152, 0, 0.4);
+        }
+        .btn-danger {
+            background: linear-gradient(45deg, #f44336, #d32f2f); color: white;
+            box-shadow: 0 4px 8px rgba(244, 67, 54, 0.3);
+        }
+        .btn-danger:hover:not(:disabled) {
+            transform: translateY(-2px); box-shadow: 0 6px 12px rgba(244, 67, 54, 0.4);
+        }
+
+        .conversion-panel {
+            background: white; border-radius: 10px; padding: 20px; margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: none;
+        }
+        .conversion-panel.show { display: block; }
+        .conversion-options {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px; margin-bottom: 20px;
+        }
+        .option-group { display: flex; flex-direction: column; gap: 8px; }
+        .option-label { font-weight: 600; color: #495057; }
+        .option-select, .option-input {
+            padding: 10px 12px; border: 2px solid #dee2e6; border-radius: 8px;
+            font-size: 14px; transition: border-color 0.3s ease;
+        }
+        .option-select:focus, .option-input:focus {
+            outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .quality-container { display: flex; align-items: center; gap: 10px; }
+        .quality-slider {
+            flex: 1; height: 6px; border-radius: 3px; background: #dee2e6;
+            outline: none; cursor: pointer;
+        }
+        .quality-value { font-weight: 600; color: #667eea; min-width: 40px; text-align: center; }
+
+        .progress-container { margin: 20px 0; display: none; }
+        .progress-container.show { display: block; }
+
+        /* 转换结果显示区域 */
+        .converted-results-container {
+            margin: 20px 0; display: none;
+            background: #f8f9fa; border-radius: 8px; padding: 20px;
+        }
+        .converted-results-container.show { display: block; }
+        .converted-results-container h3 {
+            margin: 0 0 15px 0; color: #28a745; text-align: center;
+        }
+
+        .converted-results-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px; margin-bottom: 20px;
+        }
+
+        .converted-item {
+            background: white; border-radius: 8px; padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;
+        }
+
+        .converted-item img {
+            width: 100%; height: 120px; object-fit: cover;
+            border-radius: 4px; margin-bottom: 10px;
+        }
+
+        .converted-item .filename {
+            font-size: 12px; color: #666; margin-bottom: 5px;
+            word-break: break-all; max-height: 32px; overflow: hidden;
+        }
+
+        .converted-item .fileinfo {
+            font-size: 11px; color: #888; margin-bottom: 10px;
+        }
+
+        .converted-item .download-btn {
+            background: #007bff; color: white; border: none;
+            padding: 6px 12px; border-radius: 4px; cursor: pointer;
+            font-size: 12px; transition: background 0.2s;
+        }
+
+        .converted-item .download-btn:hover {
+            background: #0056b3;
+        }
+
+        .converted-controls {
+            text-align: center; padding-top: 15px;
+            border-top: 1px solid #dee2e6;
+        }
+
+        .converted-controls .btn {
+            margin: 0 10px;
+        }
+        .progress-bar {
+            width: 100%; height: 20px; background: #e9ecef; border-radius: 10px;
+            overflow: hidden; margin-bottom: 10px;
+        }
+        .progress-fill {
+            height: 100%; background: linear-gradient(45deg, #4CAF50, #45a049);
+            width: 0%; transition: width 0.3s ease; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: 600; font-size: 12px;
+        }
+        .progress-text { text-align: center; color: #495057; font-weight: 500; }
+
+        .stats {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px; margin: 20px 0; padding: 15px;
+            background: linear-gradient(45deg, #e3f2fd, #f3e5f5); border-radius: 10px;
+        }
+        .stat-item {
+            text-align: center; padding: 10px; background: rgba(255, 255, 255, 0.8);
+            border-radius: 8px;
+        }
+        .stat-number {
+            font-size: 1.8em; font-weight: bold; color: #667eea; display: block;
+        }
+        .stat-label { font-size: 0.9em; color: #6c757d; margin-top: 5px; }
+
+        .log-container {
+            background: #2d3748; color: #e2e8f0; border-radius: 10px; padding: 20px;
+            margin: 20px 0; font-family: 'Courier New', monospace; font-size: 14px;
+            min-height: 120px; max-height: 300px; overflow-y: auto;
+            white-space: pre-wrap; line-height: 1.4;
+        }
+
+        .file-input { display: none; }
+        .match-indicator {
+            position: absolute; top: 5px; left: 5px; background: #28a745; color: white;
+            padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;
+        }
+        .size-mismatch { background: #dc3545; }
+        .unmatched-indicator { background: #dc3545; }
+        .size-match-indicator { background: #28a745; }
+        .selected-indicator {
+            position: absolute; top: -5px; right: -5px;
+            background: #667eea; color: white; width: 24px; height: 24px;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 14px; font-weight: bold; z-index: 20;
+            border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        @media (max-width: 768px) {
+            .main-container { margin: 10px; padding: 15px; }
+            .upload-section, .preview-container { grid-template-columns: 1fr; }
+            .preview-container { min-height: 500px; }
+            .preview-grid { grid-template-columns: repeat(2, 1fr); max-height: 450px; }
+            .controls { flex-direction: column; align-items: center; }
+            .btn { width: 100%; max-width: 300px; }
+            .conversion-options { grid-template-columns: 1fr; }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 480px) {
+            .preview-container { min-height: 400px; }
+            .preview-grid { grid-template-columns: 1fr; max-height: 350px; }
+            .image-item img { height: 100px; }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-container">
+        <!-- 头部 -->
+        <div class="header">
+            <h1>🎨 多功能图片处理工具集</h1>
+            <p>OCR智能匹配 + 格式转换 + 批量处理，一站式解决方案</p>
+        </div>
+
+        <!-- 工作流程 -->
+        <div class="workflow-container">
+            <!-- 步骤1: 上传图片 -->
+            <div class="step-section">
+                <div class="step-header">
+                    <div class="step-number">1</div>
+                    <div class="step-title">📂 上传图片文件</div>
+                </div>
+
+                <div class="upload-section">
+                    <div class="upload-group" id="uploadA">
+                        <input type="file" class="file-input" id="aFiles" multiple accept="image/*">
+                        <div class="upload-icon">📁</div>
+                        <div class="upload-text">A组图片（参考模板）</div>
+                        <div class="upload-hint">拖拽文件到此处或点击选择</div>
+                        <div class="file-count" id="aFileCount">未选择文件</div>
+                    </div>
+
+                    <div class="upload-group" id="uploadB">
+                        <input type="file" class="file-input" id="bFiles" multiple accept="image/*">
+                        <div class="upload-icon">🎯</div>
+                        <div class="upload-text">B组图片（需要重命名）</div>
+                        <div class="upload-hint">拖拽文件到此处或点击选择</div>
+                        <div class="file-count" id="bFileCount">未选择文件</div>
+                    </div>
+                </div>
+
+                <!-- 统计信息 -->
+                <div class="stats">
+                    <div class="stat-item">
+                        <span class="stat-number" id="aCount">0</span>
+                        <div class="stat-label">A组图片</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number" id="bCount">0</span>
+                        <div class="stat-label">B组图片</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number" id="matchedCount">0</span>
+                        <div class="stat-label">已匹配</div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number" id="unmatchedCount">0</span>
+                        <div class="stat-label">未匹配</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤2: 图片预览和匹配 -->
+            <div class="step-section">
+                <div class="step-header">
+                    <div class="step-number">2</div>
+                    <div class="step-title">🔍 OCR识别与智能匹配</div>
+                </div>
+
+                <div class="controls">
+                    <button class="btn btn-primary" id="startOCR">🚀 开始OCR识别</button>
+                    <button class="btn btn-secondary" id="confirmMatch" disabled>✅ 确认手动匹配</button>
+                    <button class="btn btn-danger" id="resetAll">🔄 重置所有</button>
+                </div>
+
+                <div class="preview-container">
+                    <div class="preview-section">
+                        <div class="preview-header">
+                            <div class="preview-title">📁 A组图片预览</div>
+                        </div>
+                        <div class="preview-grid" id="aPreview">
+                            <div style="text-align: center; color: #999; padding: 40px;">请先上传A组图片</div>
+                        </div>
+                    </div>
+
+                    <div class="preview-section">
+                        <div class="preview-header">
+                            <div class="preview-title">🎯 B组图片预览</div>
+                        </div>
+                        <div class="preview-grid" id="bPreview">
+                            <div style="text-align: center; color: #999; padding: 40px;">请先上传B组图片</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤3: 格式转换设置 -->
+            <div class="step-section">
+                <div class="step-header">
+                    <div class="step-number">3</div>
+                    <div class="step-title">🔄 格式转换与下载</div>
+                </div>
+
+                <div class="controls">
+                    <button class="btn btn-secondary" id="showConversionPanel">⚙️ 转换设置</button>
+                </div>
+
+                <!-- 转换设置面板 -->
+                <div class="conversion-panel" id="conversionPanel">
+                    <h3 style="margin-bottom: 20px; color: #333;">🔄 格式转换设置</h3>
+
+                    <div class="conversion-options">
+                        <div class="option-group">
+                            <label class="option-label">目标格式</label>
+                            <select class="option-select" id="targetFormat">
+                                <option value="jpg">JPG (标准)</option>
+                                <option value="jpg-tiny" selected>JPG-Tiny (高压缩)</option>
+                                <option value="png">PNG (无损)</option>
+                                <option value="png-tiny">PNG-Tiny (压缩)</option>
+                                <option value="webp">WebP (现代格式)</option>
+                                <option value="avif">AVIF (超高压缩)</option>
+                                <option value="ico">ICO (图标)</option>
+                            </select>
+                        </div>
+
+                        <div class="option-group">
+                            <label class="option-label">压缩质量</label>
+                            <div class="quality-container">
+                                <input type="range" class="quality-slider" id="qualitySlider"
+                                       min="10" max="100" value="80">
+                                <div class="quality-value" id="qualityValue">80%</div>
+                            </div>
+                        </div>
+
+                        <div class="option-group">
+                            <label class="option-label">重命名规则</label>
+                            <select class="option-select" id="renameRule">
+                                <option value="original">保持原名</option>
+                                <option value="matched" selected>使用匹配名</option>
+                                <option value="timestamp">添加时间戳</option>
+                                <option value="sequential">顺序编号</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="controls">
+                        <button class="btn btn-primary" id="startConversion">🚀 开始转换</button>
+                        <button class="btn btn-secondary" id="hideConversionPanel">❌ 取消</button>
+                    </div>
+                </div>
+
+                <!-- 进度条 -->
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill">0%</div>
+                    </div>
+                    <div class="progress-text" id="progressText">准备中...</div>
+                </div>
+
+                <!-- 转换结果显示区域 -->
+                <div id="convertedResultsContainer" class="converted-results-container">
+                    <h3>🎉 转换完成</h3>
+                    <div id="convertedResultsGrid" class="converted-results-grid"></div>
+                    <div class="converted-controls">
+                        <button class="btn btn-primary" id="downloadAllConverted">📥 下载全部</button>
+                        <button class="btn btn-secondary" id="downloadZipConverted">📦 下载压缩包</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 日志区域 -->
+        <div class="log-container" id="logContainer">欢迎使用多功能图片处理工具集！
+
+功能说明：
+1. 上传A组（参考模板）和B组（需要重命名）图片
+2. 点击"开始OCR识别"进行文字识别和自动匹配
+3. 可以手动选择图片进行匹配（需要相同尺寸）
+4. 选择转换格式和质量，批量下载处理后的图片
+
+注意：OCR功能需要网络连接，免费API有QPS限制。</div>
+    </div>
+
+    <script>
+        // 全局变量
+        let aResults = [], bResults = [], selectedA = null, selectedB = null;
+        let convertedResults = []; // 存储转换结果
+        let isProcessing = false;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeEventListeners();
+            updateStats();
+        });
+
+        function initializeEventListeners() {
+            // 文件上传事件
+            document.getElementById('uploadA').addEventListener('click', () => {
+                document.getElementById('aFiles').click();
+            });
+
+            document.getElementById('uploadB').addEventListener('click', () => {
+                document.getElementById('bFiles').click();
+            });
+
+            document.getElementById('aFiles').addEventListener('change', (e) => {
+                handleFileUpload(e.target.files, 'a');
+            });
+
+            document.getElementById('bFiles').addEventListener('change', (e) => {
+                handleFileUpload(e.target.files, 'b');
+            });
+
+            // 拖拽上传
+            setupDragAndDrop('uploadA', 'a');
+            setupDragAndDrop('uploadB', 'b');
+
+            // 控制按钮事件
+            document.getElementById('startOCR').addEventListener('click', startOCRProcess);
+            document.getElementById('confirmMatch').addEventListener('click', confirmMatch);
+            document.getElementById('resetAll').addEventListener('click', resetAll);
+
+            document.getElementById('showConversionPanel').addEventListener('click', showConversionPanel);
+            document.getElementById('hideConversionPanel').addEventListener('click', hideConversionPanel);
+            document.getElementById('startConversion').addEventListener('click', startConversion);
+            document.getElementById('downloadAllConverted').addEventListener('click', downloadAllConverted);
+            document.getElementById('downloadZipConverted').addEventListener('click', downloadZipConverted);
+
+            // 质量滑块事件
+            document.getElementById('qualitySlider').addEventListener('input', function() {
+                document.getElementById('qualityValue').textContent = this.value + '%';
+            });
+        }
+
+        // 文件上传处理
+        async function handleFileUpload(files, type) {
+            if (!files || files.length === 0) return;
+
+            const results = type === 'a' ? aResults : bResults;
+            const newFiles = [];
+
+            for (const file of files) {
+                if (!file.type.startsWith('image/')) continue;
+
+                const base64URL = await convertImageToBase64(file);
+                const img = new Image();
+                await new Promise((resolve) => {
+                    img.onload = resolve;
+                    img.src = "data:image/jpeg;base64," + base64URL;
+                });
+
+                newFiles.push({
+                    file: file,
+                    url: "data:image/jpeg;base64," + base64URL,
+                    text: "",
+                    confidence: 0,
+                    downloadLink: null,
+                    downloadName: file.name,
+                    matched: false,
+                    width: img.width,
+                    height: img.height,
+                    resolution: img.width * img.height
+                });
+            }
+
+            // 添加到结果数组
+            results.push(...newFiles);
+
+            // 排序：按分辨率从小到大，相同分辨率按名称排序
+            results.sort((a, b) => {
+                if (a.resolution !== b.resolution) {
+                    return a.resolution - b.resolution;
+                }
+                return a.file.name.localeCompare(b.file.name);
+            });
+
+            updateFileCount(type);
+            renderImages(type);
+            updateStats();
+            logMessage(`✅ 成功上传 ${newFiles.length} 张${type.toUpperCase()}组图片`);
+        }
+
+        // 拖拽上传设置
+        function setupDragAndDrop(elementId, type) {
+            const element = document.getElementById(elementId);
+
+            element.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                element.classList.add('drag-over');
+            });
+
+            element.addEventListener('dragleave', (e) => {
+                if (!element.contains(e.relatedTarget)) {
+                    element.classList.remove('drag-over');
+                }
+            });
+
+            element.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                element.classList.remove('drag-over');
+
+                const files = Array.from(e.dataTransfer.files).filter(file =>
+                    file.type.startsWith('image/')
+                );
+
+                if (files.length > 0) {
+                    await handleFileUpload(files, type);
+                }
+            });
+        }
+
+        // 转换图片为Base64
+        async function convertImageToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    canvas.getContext("2d").drawImage(img, 0, 0);
+                    resolve(canvas.toDataURL("image/jpeg").split(",")[1]);
+                };
+                img.onerror = reject;
+                const reader = new FileReader();
+                reader.onload = e => img.src = e.target.result;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // OCR识别
+        async function ocrImage(file, retryCount = 0) {
+            const base64 = await convertImageToBase64(file);
+            try {
+                const res = await fetch("http://0.0.0.0:3000/ocr", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ imageBase64: base64 })
+                });
+                const data = await res.json();
+
+                // 检查QPS限制
+                if (data.error_code === 18 || data.error_msg?.includes("qps") ||
+                    data.error_msg?.includes("limit")) {
+                    if (retryCount < 3) {
+                        const waitTime = 5000 * (retryCount + 1);
+                        logMessage(`⏳ QPS限制，等待 ${waitTime/1000} 秒后重试... (${retryCount + 1}/3)`);
+                        await sleep(waitTime);
+                        return await ocrImage(file, retryCount + 1);
+                    } else {
+                        return { text: "QPS限制，请稍后重试", confidence: 0 };
+                    }
+                }
+
+                const text = data.words_result?.map(w => w.words).join(" ") || "";
+                const confidence = data.words_result?.length > 0 ?
+                    data.words_result.reduce((sum, w) => sum + (w.probability || 0.8), 0) /
+                    data.words_result.length : 0;
+
+                return { text, confidence: Math.round(confidence * 100) };
+            } catch (e) {
+                if (retryCount < 2) {
+                    logMessage(`⚠️ 网络错误，重试中... (${retryCount + 1}/2)`);
+                    await sleep(1000);
+                    return await ocrImage(file, retryCount + 1);
+                }
+                return { text: "识别失败", confidence: 0 };
+            }
+        }
+
+        // 开始OCR处理
+        async function startOCRProcess() {
+            if (aResults.length === 0 || bResults.length === 0) {
+                alert("请先上传A组和B组图片！");
+                return;
+            }
+
+            if (isProcessing) return;
+            isProcessing = true;
+
+            const startBtn = document.getElementById('startOCR');
+            startBtn.disabled = true;
+            startBtn.textContent = "🔄 处理中...";
+
+            try {
+                logMessage("🚀 开始OCR识别...");
+                showProgress(true);
+
+                // 识别A组
+                const aToProcess = aResults.filter(r => !r.text || r.text === "");
+                if (aToProcess.length > 0) {
+                    logMessage(`🔍 识别A组图片 (${aToProcess.length}张)...`);
+
+                    for (let i = 0; i < aToProcess.length; i++) {
+                        const r = aToProcess[i];
+                        updateProgress((i / (aToProcess.length + bResults.length)) * 50,
+                                    `识别A组: ${r.file.name}`);
+
+                        const result = await ocrImage(r.file);
+                        r.text = result.text;
+                        r.confidence = result.confidence;
+
+                        renderImages('a');
+                        await sleep(300);
+                    }
+                }
+
+                // 识别B组
+                const bToProcess = bResults.filter(r => !r.text || r.text === "");
+                if (bToProcess.length > 0) {
+                    logMessage(`🔍 识别B组图片 (${bToProcess.length}张)...`);
+
+                    for (let i = 0; i < bToProcess.length; i++) {
+                        const r = bToProcess[i];
+                        updateProgress(50 + ((i / bToProcess.length) * 30),
+                                    `识别B组: ${r.file.name}`);
+
+                        const result = await ocrImage(r.file);
+                        r.text = result.text;
+                        r.confidence = result.confidence;
+
+                        renderImages('b');
+                        await sleep(300);
+                    }
+                }
+
+                // 自动匹配
+                updateProgress(80, "开始自动匹配...");
+                await autoMatch();
+
+                updateProgress(100, "识别完成！");
+                logMessage("✅ OCR识别和自动匹配完成！");
+
+            } catch (error) {
+                logMessage(`❌ 处理过程中出现错误: ${error.message}`);
+            } finally {
+                isProcessing = false;
+                startBtn.disabled = false;
+                startBtn.textContent = "🚀 开始OCR识别";
+                setTimeout(() => showProgress(false), 2000);
+            }
+        }
+
+        // 自动匹配
+        async function autoMatch() {
+            const unmatchedB = bResults.filter(b => !b.matched);
+            if (unmatchedB.length === 0) return;
+
+            // 调试：匹配前的B组顺序
+            console.log("自动匹配前B组顺序:");
+            bResults.forEach((item, index) => {
+                console.log(`${index + 1}. ${item.file.name} (${item.width}x${item.height})`);
+            });
+
+            logMessage(`🤖 自动匹配 ${unmatchedB.length} 张未匹配的B组图片...`);
+
+            const threshold = 0.5;
+            let autoMatchedCount = 0;
+            const usedAMatches = new Set();
+
+            // 按照bResults的原始顺序处理未匹配的图片，保持顺序不变
+            for (const b of bResults) {
+                // 只处理未匹配的图片
+                if (b.matched || !b.text || b.text.trim() === "" ||
+                    b.text === "识别失败" || b.text === "未识别到文字") {
+                    continue;
+                }
+
+                let bestMatch = null;
+                let bestSimilarity = 0;
+
+                for (const a of aResults) {
+                    if (usedAMatches.has(a) || !a.text || a.text.trim() === "" ||
+                        a.text === "识别失败" || a.text === "未识别到文字") {
+                        continue;
+                    }
+
+                    // 检查尺寸匹配
+                    if (a.width !== b.width || a.height !== b.height) {
+                        continue;
+                    }
+
+                    const similarity = stringSimilarity.compareTwoStrings(b.text, a.text);
+                    if (similarity >= threshold && similarity > bestSimilarity) {
+                        bestMatch = a;
+                        bestSimilarity = similarity;
+                    }
+                }
+
+                if (bestMatch) {
+                    b.matched = true;
+                    b.similarity = bestSimilarity;
+                    b.matchedA = bestMatch;
+                    usedAMatches.add(bestMatch);
+
+                    const suffix = b.file.name.split(".").pop();
+                    const baseName = bestMatch.file.name.split(".")[0];
+
+                    // 检查B组中是否已有相同的downloadName，避免重名冲突
+                    let newName = baseName + "." + suffix;
+                    let counter = 1;
+
+                    while (bResults.some(other => other !== b && other.downloadName === newName)) {
+                        newName = `${baseName}_${counter}.${suffix}`;
+                        counter++;
+                    }
+
+                    b.downloadLink = URL.createObjectURL(b.file);
+                    b.downloadName = newName;
+                    autoMatchedCount++;
+                }
+            }
+
+            // 调试：匹配后的B组顺序
+            console.log("自动匹配后B组顺序:");
+            bResults.forEach((item, index) => {
+                console.log(`${index + 1}. ${item.file.name} (${item.width}x${item.height}, 匹配:${item.matched})`);
+            });
+
+            renderImages('a');
+            renderImages('b');
+            updateStats();
+
+            logMessage(`✅ 自动匹配完成！成功匹配 ${autoMatchedCount} 张图片`);
+            if (autoMatchedCount < unmatchedB.length) {
+                logMessage(`ℹ️ 还有 ${unmatchedB.length - autoMatchedCount} 张图片需要手动匹配`);
+            }
+        }
+
+        // 手动匹配确认
+        function confirmMatch() {
+            if (!selectedA || !selectedB) {
+                alert("请先选择A组和B组的图片进行匹配！");
+                return;
+            }
+
+            if (selectedA.width !== selectedB.width || selectedA.height !== selectedB.height) {
+                alert(`尺寸不匹配！\nA组: ${selectedA.width}x${selectedA.height}\nB组: ${selectedB.width}x${selectedB.height}\n只能匹配相同尺寸的图片！`);
+                return;
+            }
+
+            const suffix = selectedB.file.name.split(".").pop();
+            const baseName = selectedA.file.name.split(".")[0];
+            const newName = baseName + "." + suffix;
+
+            // 检查是否有其他B组图片已使用相同的downloadName
+            const conflictingImage = bResults.find(b => b !== selectedB && b.downloadName === newName);
+
+            if (conflictingImage) {
+                // 将冲突的图片重置为未匹配状态
+                conflictingImage.matched = false;
+                conflictingImage.matchedA = null;
+                conflictingImage.downloadName = null;
+                conflictingImage.downloadLink = null;
+                conflictingImage.similarity = 0;
+
+                logMessage(`⚠️ 重名冲突：${conflictingImage.file.name} 已重置为未匹配状态，可重新匹配`);
+            }
+
+            selectedB.matched = true;
+            selectedB.matchedA = selectedA;
+            selectedB.downloadLink = URL.createObjectURL(selectedB.file);
+            selectedB.downloadName = newName;
+            selectedB.similarity = stringSimilarity.compareTwoStrings(
+                selectedB.text || '', selectedA.text || ''
+            );
+
+            const originalSelectedB = selectedB;
+            selectedA = null;
+            selectedB = null;
+
+            renderImages('a');
+            renderImages('b');
+            updateStats();
+            updateMatchButton();
+
+            logMessage(`✅ 手动匹配成功: ${originalSelectedB.file.name} → ${newName}`);
+        }
+
+
+
+        // 显示转换面板
+        function showConversionPanel() {
+            const matchedImages = bResults.filter(b => b.matched);
+            if (matchedImages.length === 0) {
+                alert("请先进行OCR识别和匹配，然后再设置转换参数！");
+                return;
+            }
+
+            document.getElementById('conversionPanel').classList.add('show');
+            logMessage(`⚙️ 转换设置面板已打开，准备转换 ${matchedImages.length} 张图片`);
+        }
+
+        function hideConversionPanel() {
+            document.getElementById('conversionPanel').classList.remove('show');
+        }
+
+        // 批量转换格式（不自动下载）
+        async function batchConvertDownload() {
+            const matchedImages = bResults.filter(b => b.matched);
+            if (matchedImages.length === 0) {
+                alert("没有已匹配的图片可以转换！");
+                return;
+            }
+
+            const targetFormat = document.getElementById('targetFormat').value;
+            const quality = parseInt(document.getElementById('qualitySlider').value);
+            const renameRule = document.getElementById('renameRule').value;
+
+            showProgress(true);
+            logMessage(`🔄 开始批量转换 ${matchedImages.length} 张图片为 ${targetFormat.toUpperCase()} 格式...`);
+
+            // 清空之前的转换结果
+            convertedResults = [];
+
+            try {
+                for (let i = 0; i < matchedImages.length; i++) {
+                    const image = matchedImages[i];
+                    updateProgress((i / matchedImages.length) * 100,
+                                `转换中: ${image.file.name}`);
+
+                    const convertedBlob = await convertImage(image.file, targetFormat, quality);
+                    if (convertedBlob) {
+                        const extension = getFileExtension(targetFormat);
+                        let fileName = getConvertedFileName(image, renameRule, extension, i);
+
+                        // 存储转换结果而不是直接下载
+                        convertedResults.push({
+                            originalImage: image,
+                            convertedBlob: convertedBlob,
+                            fileName: fileName,
+                            format: targetFormat.toUpperCase(),
+                            quality: quality,
+                            size: convertedBlob.size
+                        });
+
+                        logMessage(`✅ ${fileName} 转换完成`);
+                    } else {
+                        logMessage(`❌ ${image.file.name} 转换失败`);
+                    }
+
+                    await sleep(100);
+                }
+
+                updateProgress(100, "转换完成！");
+                logMessage(`✅ 批量转换完成！${matchedImages.length} 张图片已准备好下载`);
+
+                // 显示转换结果
+                displayConvertedResults();
+
+            } catch (error) {
+                logMessage(`❌ 转换失败: ${error.message}`);
+            } finally {
+                setTimeout(() => showProgress(false), 1000);
+            }
+        }
+
+
+        // 开始转换（面板中的转换按钮）
+        async function startConversion() {
+            hideConversionPanel();
+            await batchConvertDownload();
+        }
+
+        // 显示转换结果
+        function displayConvertedResults() {
+            if (convertedResults.length === 0) return;
+
+            const container = document.getElementById('convertedResultsContainer');
+            const grid = document.getElementById('convertedResultsGrid');
+
+            // 清空之前的结果
+            grid.innerHTML = '';
+
+            convertedResults.forEach((result, index) => {
+                const item = document.createElement('div');
+                item.className = 'converted-item';
+
+                // 创建图片预览
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(result.convertedBlob);
+                img.alt = result.fileName;
+
+                // 文件名
+                const filename = document.createElement('div');
+                filename.className = 'filename';
+                filename.textContent = result.fileName;
+
+                // 文件信息
+                const fileinfo = document.createElement('div');
+                fileinfo.className = 'fileinfo';
+                const sizeKB = (result.size / 1024).toFixed(1);
+                fileinfo.textContent = `${result.format} | ${result.quality}% | ${sizeKB}KB`;
+
+                item.appendChild(img);
+                item.appendChild(filename);
+                item.appendChild(fileinfo);
+
+                grid.appendChild(item);
+            });
+
+            // 显示容器
+            container.classList.add('show');
+        }
+
+        // 下载单个转换后的图片
+        function downloadSingleConverted(index) {
+            if (index >= 0 && index < convertedResults.length) {
+                const result = convertedResults[index];
+                const downloadUrl = URL.createObjectURL(result.convertedBlob);
+
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = result.fileName;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+
+                URL.revokeObjectURL(downloadUrl);
+                logMessage(`✅ ${result.fileName} 已下载`);
+            }
+        }
+
+        // 下载全部转换后的图片
+        function downloadAllConverted() {
+            if (convertedResults.length === 0) {
+                alert('没有可下载的转换结果！');
+                return;
+            }
+
+            convertedResults.forEach((result, index) => {
+                setTimeout(() => {
+                    downloadSingleConverted(index);
+                }, index * 200); // 延迟下载，避免浏览器阻止
+            });
+
+            logMessage(`✅ 开始下载全部 ${convertedResults.length} 张图片`);
+        }
+
+        // 下载转换结果的ZIP压缩包
+        async function downloadZipConverted() {
+            if (convertedResults.length === 0) {
+                alert('没有可下载的转换结果！');
+                return;
+            }
+
+            showProgress(true);
+            logMessage(`📦 开始打包 ${convertedResults.length} 张转换后的图片...`);
+
+            try {
+                const zip = new JSZip();
+
+                convertedResults.forEach((result, index) => {
+                    updateProgress((index / convertedResults.length) * 100,
+                                `打包中: ${result.fileName}`);
+                    zip.file(result.fileName, result.convertedBlob);
+                });
+
+                updateProgress(100, "生成ZIP文件...");
+                const content = await zip.generateAsync({ type: "blob" });
+
+                const downloadUrl = URL.createObjectURL(content);
+                const a = document.createElement("a");
+                a.href = downloadUrl;
+                a.download = `converted_images_${new Date().toISOString().slice(0,10)}.zip`;
+                a.style.display = "none";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+
+                logMessage(`✅ ZIP压缩包下载已开始！包含 ${convertedResults.length} 张转换后的图片`);
+            } catch (error) {
+                logMessage(`❌ 打包失败: ${error.message}`);
+            } finally {
+                setTimeout(() => showProgress(false), 2000);
+            }
+        }
+
+        // 图片转换
+        async function convertImage(file, targetFormat, quality) {
+            return new Promise((resolve, reject) => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+
+                img.onload = function() {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+
+                    let mimeType, qualityValue;
+
+                    switch(targetFormat) {
+                        case 'jpg':
+                        case 'jpg-tiny':
+                            mimeType = 'image/jpeg';
+                            // 确保质量值在有效范围内
+                            qualityValue = Math.max(0.01, Math.min(1.0, quality / 100));
+                            break;
+                        case 'png':
+                        case 'png-tiny':
+                            mimeType = 'image/png';
+                            // PNG通过预处理来实现质量控制
+                            qualityValue = undefined;
+                            break;
+                        case 'webp':
+                            mimeType = 'image/webp';
+                            // 确保质量值在有效范围内
+                            qualityValue = Math.max(0.01, Math.min(1.0, quality / 100));
+                            break;
+                        case 'avif':
+                            // AVIF格式需要特殊处理
+                            if (!canvas.toBlob.toString().includes('image/avif')) {
+                                // 如果浏览器不支持AVIF，回退到WebP
+                                logMessage(`⚠️ 浏览器不支持AVIF格式，回退到WebP格式`);
+                                mimeType = 'image/webp';
+                                qualityValue = quality / 100;
+                            } else {
+                                mimeType = 'image/avif';
+                                // AVIF质量参数范围通常是0-100，但某些浏览器实现可能不同
+                                qualityValue = Math.max(0.01, Math.min(1.0, quality / 100));
+                            }
+                            break;
+                        case 'ico':
+                            // ICO格式通常不支持质量参数
+                            mimeType = 'image/png'; // 使用PNG作为ICO的基础
+                            qualityValue = undefined;
+                            break;
+                        default:
+                            mimeType = 'image/jpeg';
+                            qualityValue = quality / 100;
+                    }
+
+                    // PNG格式质量控制处理
+                    if (targetFormat === 'png' || targetFormat === 'png-tiny') {
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const data = imageData.data;
+
+                        // 根据质量设置进行图像预处理
+                        if (quality < 100) {
+                            // 方法1: 颜色量化 - 减少颜色数量
+                            const colorReduction = Math.max(1, Math.floor((100 - quality) / 10));
+                            const factor = Math.pow(2, colorReduction);
+
+                            for (let i = 0; i < data.length; i += 4) {
+                                // 量化RGB通道
+                                data[i] = Math.floor(data[i] / factor) * factor;       // Red
+                                data[i + 1] = Math.floor(data[i + 1] / factor) * factor; // Green
+                                data[i + 2] = Math.floor(data[i + 2] / factor) * factor; // Blue
+                                // Alpha通道保持不变
+                            }
+
+                            // 方法2: 如果质量很低，添加轻微的抖动
+                            if (quality < 50) {
+                                for (let i = 0; i < data.length; i += 4) {
+                                    const noise = (Math.random() - 0.5) * (50 - quality) / 5;
+                                    data[i] = Math.max(0, Math.min(255, data[i] + noise));
+                                    data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
+                                    data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
+                                }
+                            }
+
+                            ctx.putImageData(imageData, 0, 0);
+                        }
+
+                        // 对于非常低的质量，可以降低分辨率
+                        if (quality < 30) {
+                            const scale = 0.5 + (quality / 30) * 0.5; // 0.5 到 1.0 的缩放
+                            const newWidth = Math.floor(canvas.width * scale);
+                            const newHeight = Math.floor(canvas.height * scale);
+
+                            // 创建临时canvas进行缩放
+                            const tempCanvas = document.createElement('canvas');
+                            const tempCtx = tempCanvas.getContext('2d');
+                            tempCanvas.width = newWidth;
+                            tempCanvas.height = newHeight;
+
+                            // 缩小
+                            tempCtx.drawImage(canvas, 0, 0, newWidth, newHeight);
+
+                            // 重新调整原canvas大小并绘制回去
+                            canvas.width = newWidth;
+                            canvas.height = newHeight;
+                            ctx.drawImage(tempCanvas, 0, 0);
+                        }
+                    }
+
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            // 添加文件大小信息到日志
+                            const sizeKB = (blob.size / 1024).toFixed(1);
+                            console.log(`转换完成: ${targetFormat.toUpperCase()}, 质量: ${quality}%, 大小: ${sizeKB}KB`);
+                            resolve(blob);
+                        } else {
+                            // 如果转换失败，尝试使用JPEG作为后备
+                            canvas.toBlob((fallbackBlob) => {
+                                if (fallbackBlob) {
+                                    logMessage(`⚠️ ${targetFormat.toUpperCase()}格式转换失败，使用JPEG格式`);
+                                    resolve(fallbackBlob);
+                                } else {
+                                    reject(new Error('转换失败'));
+                                }
+                            }, 'image/jpeg', 0.8);
+                        }
+                    }, mimeType, qualityValue);
+                };
+
+                img.onerror = () => reject(new Error('图片加载失败'));
+
+                const reader = new FileReader();
+                reader.onload = e => img.src = e.target.result;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // 获取转换后的文件名
+        function getConvertedFileName(image, renameRule, extension, index) {
+            switch (renameRule) {
+                case 'original':
+                    return image.file.name.split('.')[0] + '.' + extension;
+                case 'matched':
+                    return image.downloadName.split('.')[0] + '.' + extension;
+                case 'timestamp':
+                    return `${image.downloadName.split('.')[0]}_${Date.now()}.${extension}`;
+                case 'sequential':
+                    return `image_${(index + 1).toString().padStart(3, '0')}.${extension}`;
+                default:
+                    return image.downloadName.split('.')[0] + '.' + extension;
+            }
+        }
+
+        // 获取文件扩展名
+        function getFileExtension(format) {
+            const extensionMap = {
+                'jpg': 'jpg',
+                'jpg-tiny': 'jpg',
+                'png': 'png',
+                'png-tiny': 'png',
+                'webp': 'webp',
+                'avif': 'avif',
+                'ico': 'ico'
+            };
+            return extensionMap[format] || 'jpg';
+        }
+
+        // 渲染图片
+        function renderImages(type) {
+            const results = type === 'a' ? aResults : bResults;
+            const container = document.getElementById(type + 'Preview');
+
+            // 排序将在下面的三级排序中统一处理
+
+            if (results.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: #999; padding: 40px;">
+                        请先上传${type.toUpperCase()}组图片
+                    </div>
+                `;
+                return;
+            }
+
+            // 三级排序逻辑：
+            // 1. 匹配状态分组：未匹配 → 已匹配
+            // 2. 尺寸排序：小尺寸 → 大尺寸 (同组内)
+            // 3. 名称排序：A → Z (同尺寸内)
+            results.sort((a, b) => {
+                let aMatched = false, bMatched = false;
+
+                if (type === 'a') {
+                    // A组：检查是否被B组匹配
+                    aMatched = bResults.some(bItem => bItem.matched && bItem.matchedA === a);
+                    bMatched = bResults.some(bItem => bItem.matched && bItem.matchedA === b);
+                } else {
+                    // B组：直接使用matched属性
+                    aMatched = a.matched;
+                    bMatched = b.matched;
+                }
+
+                // 第一优先级：匹配状态分组（未匹配的在前）
+                if (!aMatched && bMatched) return -1;
+                if (aMatched && !bMatched) return 1;
+
+                // 第二优先级：相同匹配状态内，按分辨率从小到大排序
+                if (a.resolution !== b.resolution) {
+                    return a.resolution - b.resolution;
+                }
+
+                // 第三优先级：相同分辨率内，按显示名称字母顺序排序
+                // 对于B组已匹配的图片，使用downloadName；未匹配的使用原始文件名
+                // 对于A组，始终使用原始文件名
+                let aName, bName;
+
+                if (type === 'b') {
+                    aName = (aMatched && a.downloadName) ? a.downloadName : a.file.name;
+                    bName = (bMatched && b.downloadName) ? b.downloadName : b.file.name;
+                } else {
+                    aName = a.file.name;
+                    bName = b.file.name;
+                }
+
+                const nameComparison = aName.localeCompare(bName);
+
+                // 调试信息：在同分辨率情况下输出排序比较
+                if (a.resolution === b.resolution && nameComparison !== 0) {
+                    console.log(`${type}组同尺寸排序: ${aName} vs ${bName} = ${nameComparison} (显示名称)`);
+                }
+
+                return nameComparison;
+            });
+
+            // 验证排序结果（调试用）
+            if (type === 'b') {
+                console.log(`渲染时B组最终排序:`);
+                results.forEach((item, index) => {
+                    const displayName = (item.matched && item.downloadName) ? item.downloadName : item.file.name;
+                    console.log(`${index + 1}. ${displayName} [原名:${item.file.name}] (${item.width}x${item.height}, 匹配:${item.matched})`);
+                });
+            }
+
+            container.innerHTML = '';
+
+            results.forEach((result, index) => {
+                const item = document.createElement('div');
+                item.className = 'image-item';
+
+                // 添加匹配状态样式
+                let isMatched = false;
+                if (type === 'a') {
+                    // A组：检查是否被任何B组图片匹配
+                    isMatched = bResults.some(b => b.matched && b.matchedA === result);
+                } else {
+                    // B组：直接使用matched属性
+                    isMatched = result.matched;
+                }
+
+                if (isMatched) {
+                    item.classList.add('matched');
+                } else {
+                    // 如果OCR识别完成但未匹配，添加未匹配样式
+                    if (result.text && result.text.trim() &&
+                        result.text !== '等待识别...' && result.text !== '识别中...' &&
+                        result.text !== '识别失败' && result.text !== '未识别到文字') {
+                        item.classList.add('unmatched');
+                    }
+                }
+
+                // 添加选中状态样式
+                if ((type === 'a' && result === selectedA) ||
+                    (type === 'b' && result === selectedB)) {
+                    item.classList.add('selected');
+                }
+
+                // 构建指示器HTML
+                let indicators = '';
+
+                // 选中状态指示器（最优先显示）
+                if ((type === 'a' && result === selectedA) || (type === 'b' && result === selectedB)) {
+                    indicators += '<div class="selected-indicator">✓</div>';
+                }
+
+                // 匹配状态指示器
+                if (isMatched) {
+                    indicators += '<div class="match-indicator">已匹配</div>';
+                } else {
+                    // 显示未匹配指示器（对A组和B组都适用）
+                    if (result.text && result.text.trim() &&
+                        result.text !== '等待识别...' && result.text !== '识别中...' &&
+                        result.text !== '识别失败' && result.text !== '未识别到文字') {
+                        indicators += '<div class="match-indicator unmatched-indicator">未匹配</div>';
+                    }
+                }
+
+                // 尺寸匹配指示器（仅对B组且有选中的A组时显示）
+                if (selectedA && type === 'b' && !isMatched) {
+                    if (selectedA.width === result.width && selectedA.height === result.height) {
+                        indicators += '<div class="match-indicator size-match-indicator" style="top: 25px;">尺寸匹配</div>';
+                    } else {
+                        indicators += '<div class="match-indicator size-mismatch" style="top: 25px;">尺寸不符</div>';
+                    }
+                }
+
+                item.innerHTML = `
+                    <button class="delete-btn" onclick="deleteImage('${type}', ${index})">×</button>
+                    ${indicators}
+                    <img src="${result.url}" alt="${result.file.name}" onclick="selectImage('${type}', ${index})">
+                    <div class="image-filename">${result.downloadName || result.file.name}</div>
+                    <div class="image-ocr-text">${result.text || '等待识别...'}</div>
+                    <div class="image-resolution">${result.width}×${result.height}</div>
+                `;
+
+                container.appendChild(item);
+            });
+        }
+
+        // 选择图片
+        function selectImage(type, index) {
+            if (type === 'a') {
+                selectedA = aResults[index];
+                selectedB = null;
+            } else {
+                selectedB = bResults[index];
+            }
+
+            renderImages('a');
+            renderImages('b');
+            updateMatchButton();
+
+            logMessage(`✅ 已选择${type.toUpperCase()}组图片: ${(type === 'a' ? selectedA : selectedB).file.name}`);
+        }
+
+        // 删除图片
+        function deleteImage(type, index) {
+            if (type === 'a') {
+                aResults.splice(index, 1);
+                if (selectedA === aResults[index]) selectedA = null;
+            } else {
+                bResults.splice(index, 1);
+                if (selectedB === bResults[index]) selectedB = null;
+            }
+
+            updateFileCount(type);
+            renderImages(type);
+            updateStats();
+            updateMatchButton();
+
+            logMessage(`🗑️ 已删除${type.toUpperCase()}组图片`);
+        }
+
+        // 更新文件计数
+        function updateFileCount(type) {
+            const count = (type === 'a' ? aResults : bResults).length;
+            document.getElementById(type + 'FileCount').textContent =
+                count > 0 ? `已选择 ${count} 张图片` : '未选择文件';
+        }
+
+        // 更新统计信息
+        function updateStats() {
+            document.getElementById('aCount').textContent = aResults.length;
+            document.getElementById('bCount').textContent = bResults.length;
+            const matched = bResults.filter(b => b.matched).length;
+            document.getElementById('matchedCount').textContent = matched;
+            document.getElementById('unmatchedCount').textContent = bResults.length - matched;
+        }
+
+        // 更新匹配按钮状态
+        function updateMatchButton() {
+            const confirmBtn = document.getElementById('confirmMatch');
+            const canMatch = selectedA && selectedB &&
+                            selectedA.width === selectedB.width &&
+                            selectedA.height === selectedB.height;
+
+            confirmBtn.disabled = !canMatch;
+            confirmBtn.style.opacity = canMatch ? '1' : '0.5';
+        }
+
+        // 重置所有
+        function resetAll() {
+            if (confirm('确定要重置所有数据吗？这将清除所有上传的图片和匹配结果。')) {
+                aResults = [];
+                bResults = [];
+                selectedA = null;
+                selectedB = null;
+
+                updateFileCount('a');
+                updateFileCount('b');
+                renderImages('a');
+                renderImages('b');
+                updateStats();
+                updateMatchButton();
+                hideConversionPanel();
+                showProgress(false);
+
+                document.getElementById('logContainer').textContent =
+                    '✅ 所有数据已重置，可以重新开始使用。';
+            }
+        }
+
+        // 显示/隐藏进度条
+        function showProgress(show) {
+            const container = document.getElementById('progressContainer');
+            container.classList.toggle('show', show);
+            if (!show) {
+                updateProgress(0, '');
+            }
+        }
+
+        // 更新进度条
+        function updateProgress(percent, text) {
+            const fill = document.getElementById('progressFill');
+            const textEl = document.getElementById('progressText');
+
+            fill.style.width = percent + '%';
+            fill.textContent = Math.round(percent) + '%';
+            textEl.textContent = text;
+        }
+
+        // 日志消息
+        function logMessage(message) {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            logContainer.textContent += `\n[${timestamp}] ${message}`;
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // 工具函数
+        function sleep(ms) {
+            return new Promise(r => setTimeout(r, ms));
+        }
+    </script>
+</body>
+</html>
