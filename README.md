@@ -24,8 +24,7 @@
 ```
 OCR/
 ├── server.js              # 主服务器（多Key轮询）
-├── index.html             # 主前端页面（推荐使用）
-├── ocrplus.html           # 增强版前端（⚠️ 保持原样，不要修改）
+├── index.html             # 主前端页面
 ├── config.example.js      # 配置文件示例
 ├── env.example            # 环境变量示例
 ├── package.json           # 项目配置
@@ -35,7 +34,6 @@ OCR/
 ├── README.md              # 本文件
 ├── LICENSE                # MIT 许可证
 ├── image.png              # 截图
-├── ocrplus.png            # 截图
 ├── node_modules/          # 依赖包（自动生成）
 ├── config.js              # ⚠️ 你的真实配置（不提交）
 └── .env                   # ⚠️ 你的环境变量（不提交）
@@ -52,10 +50,6 @@ OCR/
   - API 地址: `http://localhost:3000/ocr`
   - 自动从服务器获取最大 QPS 配置
   - 支持动态调整 QPS（基于服务器 Key 数量）
-
-- **ocrplus.html**: 增强版（包含格式转换）
-  - ⚠️ **重要**: 此文件保持原样，不要修改
-  - API 地址: `http://0.0.0.0:3000/ocr`
 
 ---
 
@@ -242,21 +236,15 @@ git status
 
 ---
 
-## OCRPlus 增强版说明
+## 其他版本
 
-`ocrplus.html` 为增强版页面，包含"格式转换与下载"整套流程：
+### OCRPlus 增强版
 
-![OCRPlus 界面](./ocrplus.png)
+如需格式转换功能（JPG/PNG/WebP/AVIF/ICO 等），请切换到 `ocrplus` 分支：
 
-### 主要差异
-
-- ✅ 增加了格式转换面板（JPG/PNG/WebP/AVIF/ICO 等，质量可调，重命名规则可选）
-- 📊 OCR 流程以顺序进度条呈现
-- 🔧 手动匹配同样要求尺寸一致；提供结果列表与 ZIP 打包下载
-
-### ⚠️ 重要提示
-
-**此文件保持原样，永远不要修改 `ocrplus.html`！**
+```bash
+git checkout ocrplus
+```
 
 ---
 
@@ -286,15 +274,14 @@ git status
 - 系统会保留手动匹配并重新计算自动匹配
 
 ### Q5: 一张 A 被多个 B 匹配怎么办？
-**A**:
+**A**: 
 - 内置去重策略：同名冲突时会回退冲突 B
 - 建议手动重新匹配冲突项
 
-### Q6: 为什么不能修改 ocrplus.html？
-**A**:
-- ocrplus.html 是独立的增强版本
-- 使用不同的 API 地址配置
-- 保持原样以避免兼容性问题
+### Q6: OCRPlus 增强版在哪里？
+**A**: 
+- 增强版（包含格式转换）在 `ocrplus` 分支
+- 切换命令：`git checkout ocrplus`
 
 ---
 
