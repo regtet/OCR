@@ -1636,8 +1636,8 @@
             }
         })();
 
-        // QPS 动态显示
-        (function(){
+        // QPS 动态显示与服务器配置同步
+        (async function(){
             const input = document.getElementById("qpsInput");
             const label = document.getElementById("qpsValue");
             const sync = () => {
@@ -1645,6 +1645,21 @@
                 const v = parseInt(input.value || "2", 10);
                 label.textContent = (isNaN(v) || v < 1 ? 2 : v).toString();
             };
+
+            // 从服务器获取配置并更新 QPS 滑块
+            try {
+                const res = await fetch("http://localhost:3000/config");
+                const config = await res.json();
+                if (config.maxQPS) {
+                    input.max = config.maxQPS;
+                    input.value = Math.min(parseInt(input.value), config.maxQPS);
+                    sync();
+                    console.log(`✅ 已从服务器获取配置: 最大QPS=${config.maxQPS} (${config.totalKeys}个API Key)`);
+                }
+            } catch (e) {
+                console.warn('⚠️ 无法获取服务器配置，使用默认QPS限制');
+            }
+
             if (input) {
                 input.addEventListener("input", sync);
                 input.addEventListener("change", sync);
