@@ -199,7 +199,7 @@ node server.js
 需要修改 `index.html` 第 806 行：
 ```javascript
 // 取消注释并修改为你的服务器IP
-return 'http://117.72.99.159:3000';
+return 'http://xxx.xxx.xxx.xxx:3000';
 ```
 
 ---
