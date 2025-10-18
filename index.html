@@ -541,22 +541,35 @@
             background: linear-gradient(45deg, #2196F3, #1976D2);
             color: #fff;
             box-shadow: 0 4px 8px rgba(33, 150, 243, 0.3);
+            opacity: 0.5;
         }
 
-        #confirmBtn:hover {
+        #confirmBtn:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 6px 12px rgba(33, 150, 243, 0.4);
         }
 
-        #batchDownloadBtn {
+        #forceMatchBtn {
             background: linear-gradient(45deg, #FF9800, #F57C00);
             color: #fff;
             box-shadow: 0 4px 8px rgba(255, 152, 0, 0.3);
+            opacity: 0.5;
+        }
+
+        #forceMatchBtn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(255, 152, 0, 0.4);
+        }
+
+        #batchDownloadBtn {
+            background: linear-gradient(45deg, #00BCD4, #0097A7);
+            color: #fff;
+            box-shadow: 0 4px 8px rgba(0, 188, 212, 0.3);
         }
 
         #batchDownloadBtn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(255, 152, 0, 0.4);
+            box-shadow: 0 6px 12px rgba(0, 188, 212, 0.4);
         }
 
         #zipDownloadBtn {
@@ -724,11 +737,12 @@
             </label>
             <label style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fff;border-radius:10px;border:1px solid #e0e0e0;">
                 QPS限制(每秒请求数)
-                <input id="qpsInput" type="range" min="1" max="10" step="1" value="2" style="width:160px;">
-                <span id="qpsValue" style="min-width:24px;text-align:right;font-weight:700;color:#9C27B0;">2</span>
+                <input id="qpsInput" type="range" min="1" max="10" step="1" value="6" style="width:160px;">
+                <span id="qpsValue" style="min-width:24px;text-align:right;font-weight:700;color:#9C27B0;">6</span>
             </label>
             <button id="startBtn">🚀 开始识别并自动匹配</button>
-            <button id="confirmBtn">✅ 确认手动匹配</button>
+            <button id="confirmBtn" disabled>✅ 确认手动匹配</button>
+            <button id="forceMatchBtn" disabled>⚠️ 强制匹配</button>
             <button id="batchDownloadBtn">📥 批量单张下载</button>
             <button id="zipDownloadBtn">📦 批量ZIP下载</button>
             <button id="resetBtn">🔄 重置</button>
@@ -766,6 +780,36 @@
     <script src="https://cdn.jsdelivr.net/npm/string-similarity@4.0.4/umd/string-similarity.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script>
+        // ============================================================
+        // API 服务器地址配置（自动适配本地和生产环境）
+        // ============================================================
+        const API_BASE_URL = (() => {
+            // 方式1: 如果是从服务器访问（http://或https://），使用相对路径
+            if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+                // 假设前端和后端在同一台服务器上
+                const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+
+                // 如果通过 3000 端口访问（直接访问后端）
+                if (port === '3000') {
+                    return `${window.location.protocol}//${window.location.hostname}:3000`;
+                }
+
+                // 如果通过其他端口访问（如 Nginx 代理），后端在 3000 端口
+                return `${window.location.protocol}//${window.location.hostname}:3000`;
+            }
+
+            // 方式2: 如果是本地 file:// 打开
+            // 默认使用 localhost（本地开发）
+            return 'http://localhost:3000';
+
+            // 如果要连接远程服务器，取消下面这行的注释并修改IP：
+            // return 'http://117.72.99.159:3000';
+        })();
+
+        console.log(`📡 API服务器地址: ${API_BASE_URL}`);
+
+        // ============================================================
+
         function sleep(ms) {
             return new Promise(r => setTimeout(r, ms))
         }
@@ -790,9 +834,7 @@
         async function ocrImage(file, retryCount = 0) {
             const base64 = await convertImageToBase64(file);
             try {
-                // 在每次请求（含重试）前确保频率 ≤ 2 次/秒
-                await takeRateSlot(2);
-                const res = await fetch("http://localhost:3000/ocr", {
+                const res = await fetch(`${API_BASE_URL}/ocr`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ imageBase64: base64 })
@@ -814,7 +856,11 @@
                 const text = data.words_result?.map(w => w.words).join(" ") || "";
                 const confidence = data.words_result?.length > 0 ?
                     data.words_result.reduce((sum, w) => sum + (w.probability || 0.8), 0) / data.words_result.length : 0;
-                return { text, confidence: Math.round(confidence * 100) };
+                // 如果没有识别到文字，明确标记
+                return {
+                    text: text || "未识别到文字",
+                    confidence: Math.round(confidence * 100)
+                };
             } catch (e) {
                 if (retryCount < 2) {
                     console.log(`网络错误，重试中... (${retryCount + 1}/2)`);
@@ -825,30 +871,48 @@
             }
         }
 
-        // 简单速率限制器：确保全局启动速率 ≤ 动态QPS 次/秒
-        const _rateTimestamps = [];
-        function getCurrentQps() {
-            const el = document.getElementById("qpsInput");
-            const val = parseInt(el && el.value ? el.value : "2", 10);
-            return (isNaN(val) || val < 1) ? 2 : val;
-        }
+        // ============================================================
+        // 激进并发策略：每个Key独立计时，每秒发2个请求
+        // ============================================================
+        const KEY_COUNT = 3;  // API Key 数量
+        const QPS_PER_KEY = 2;  // 每个Key每秒的请求数
+        const TOTAL_QPS = KEY_COUNT * QPS_PER_KEY;  // 总QPS = 6
+
+        // 记录每个批次的发送时间
+        const batchTimestamps = [];
+        let currentBatchIndex = 0;
+
         async function takeRateSlot() {
-            while (true) {
-                const now = Date.now();
-                // 仅保留最近 1000ms 的时间戳
-                for (let i = _rateTimestamps.length - 1; i >= 0; i--) {
-                    if (now - _rateTimestamps[i] > 1000) {
-                        _rateTimestamps.splice(i, 1);
-                    }
-                }
-                const maxPerSecond = getCurrentQps();
-                if (_rateTimestamps.length < maxPerSecond) {
-                    _rateTimestamps.push(now);
-                    return;
-                }
-                // 等待一小段时间再检查
-                await sleep(120);
+            const now = Date.now();
+
+            // 计算当前应该在第几批（每秒一批，每批6个请求）
+            const currentSecond = Math.floor(now / 1000);
+
+            // 清理超过2秒的旧记录
+            while (batchTimestamps.length > 0 && now - batchTimestamps[0] > 2000) {
+                batchTimestamps.shift();
             }
+
+            // 检查当前秒内是否已经发送了6个请求
+            const requestsInCurrentSecond = batchTimestamps.filter(t =>
+                Math.floor(t / 1000) === currentSecond
+            ).length;
+
+            if (requestsInCurrentSecond < TOTAL_QPS) {
+                // 还可以发送
+                batchTimestamps.push(now);
+                return;
+            }
+
+            // 需要等待到下一秒
+            const nextSecond = (currentSecond + 1) * 1000;
+            const waitTime = nextSecond - now;
+            if (waitTime > 0) {
+                await sleep(waitTime);
+            }
+
+            // 重新尝试
+            return takeRateSlot();
         }
 
         async function runWithConcurrency(tasks, limit, worker) {
@@ -950,7 +1014,7 @@
         function renderImages(container, results, type) {
             container.innerHTML = "";
 
-            // 统一的排序逻辑：未匹配的在前，已匹配的按尺寸和名称从小到大排序
+            // 统一的排序逻辑：已匹配的在前，未匹配的在后，按尺寸和名称排序
             results.sort((a, b) => {
                 let aMatched = false, bMatched = false;
 
@@ -964,20 +1028,16 @@
                     bMatched = b.matched;
                 }
 
-                // A组：未匹配的在前；B组：已匹配的在前
-                if (type === "a") {
-                    if (!aMatched && bMatched) return -1;
-                    if (aMatched && !bMatched) return 1;
-                } else {
-                    if (aMatched && !bMatched) return -1;
-                    if (!aMatched && bMatched) return 1;
-                }
+                // 第一优先级：已匹配的在前，未匹配的在后
+                if (aMatched && !bMatched) return -1;  // a已匹配 → 排前面
+                if (!aMatched && bMatched) return 1;   // a未匹配 → 排后面
 
-                // 如果都匹配或都不匹配，按尺寸排序，尺寸相同时按名称排序
+                // 第二优先级：按分辨率从小到大排序
                 if (a.resolution !== b.resolution) {
                     return a.resolution - b.resolution;
                 }
-                // 使用downloadName进行排序，如果没有downloadName则使用file.name
+
+                // 第三优先级：使用downloadName进行排序，如果没有downloadName则使用file.name
                 const aName = a.downloadName || a.file.name;
                 const bName = b.downloadName || b.file.name;
                 return aName.localeCompare(bName);
@@ -999,7 +1059,12 @@
                 };
 
                 const p = document.createElement("p");
-                p.textContent = (r.text && r.text.trim()) ? r.text : "识别中...";
+                // 显示OCR识别结果，如果为空则显示等待状态
+                if (!r.text || r.text === "") {
+                    p.textContent = "等待识别...";
+                } else {
+                    p.textContent = r.text;
+                }
 
                 const nameResolutionContainer = document.createElement("div");
                 nameResolutionContainer.className = "name-resolution-container";
@@ -1321,17 +1386,36 @@
             // 恢复B组图片的选中状态
             bResults.forEach(b => b.domDiv.classList.toggle("selected", b === selectedB));
 
-            // 更新确认按钮状态
+            // 更新确认按钮和强制匹配按钮状态（互斥）
             const confirmBtn = document.getElementById("confirmBtn");
-            if (confirmBtn) {
-                const canMatch = selectedA && selectedB &&
+            const forceMatchBtn = document.getElementById("forceMatchBtn");
+
+            if (confirmBtn && forceMatchBtn) {
+                const hasSelection = selectedA && selectedB;
+                const sizeMatch = hasSelection &&
                     selectedA.width === selectedB.width &&
                     selectedA.height === selectedB.height;
-                confirmBtn.disabled = !canMatch;
-                if (canMatch) {
-                    confirmBtn.style.opacity = "1";
+
+                if (hasSelection) {
+                    if (sizeMatch) {
+                        // 尺寸匹配：启用"确认手动匹配"，禁用"强制匹配"
+                        confirmBtn.disabled = false;
+                        confirmBtn.style.opacity = "1";
+                        forceMatchBtn.disabled = true;
+                        forceMatchBtn.style.opacity = "0.5";
+                    } else {
+                        // 尺寸不匹配：禁用"确认手动匹配"，启用"强制匹配"
+                        confirmBtn.disabled = true;
+                        confirmBtn.style.opacity = "0.5";
+                        forceMatchBtn.disabled = false;
+                        forceMatchBtn.style.opacity = "1";
+                    }
                 } else {
+                    // 未选择：两个按钮都禁用
+                    confirmBtn.disabled = true;
                     confirmBtn.style.opacity = "0.5";
+                    forceMatchBtn.disabled = true;
+                    forceMatchBtn.style.opacity = "0.5";
                 }
             }
         }
@@ -1350,26 +1434,82 @@
             let doneB = 0;
 
             if (totalA + totalB > 0) {
-                logEl.textContent = `并发识别中 (A:${totalA} B:${totalB})，并发=2...\n`;
+                logEl.textContent = `批次识别中 (A:${totalA} B:${totalB})，每秒6张...\n`;
                 const allTasks = [
                     ...aToProcess.map(item => ({ group: 'a', item })),
                     ...bToProcess.map(item => ({ group: 'b', item }))
                 ];
 
-                await runWithConcurrency(allTasks, 2, async (task) => {
-                    const target = task.item;
-                    const result = await ocrImage(target.file);
-                    target.text = result.text;
-                    target.confidence = result.confidence;
-                    if (target.domP) {
-                        target.domP.textContent = (target.text && target.text.trim()) ? target.text : "未识别到文字";
+                // 批次发送策略：每秒发送6个，不等待返回
+                const BATCH_SIZE = 6;  // 每批6个（3个Key × 2个请求）
+                const BATCH_INTERVAL = 1000;  // 每秒一批
+
+                let batchIndex = 0;
+                const startTime = Date.now();
+
+                // 按批次处理
+                while (batchIndex * BATCH_SIZE < allTasks.length) {
+                    const batchStartIndex = batchIndex * BATCH_SIZE;
+                    const batchEndIndex = Math.min(batchStartIndex + BATCH_SIZE, allTasks.length);
+                    const batchTasks = allTasks.slice(batchStartIndex, batchEndIndex);
+
+                    // 计算应该在第几秒发送这一批
+                    const targetTime = startTime + (batchIndex * BATCH_INTERVAL);
+                    const now = Date.now();
+                    const waitTime = targetTime - now;
+
+                    // 如果还没到时间，等待
+                    if (waitTime > 0) {
+                        await sleep(waitTime);
                     }
-                    if (task.group === 'a') {
-                        doneA++;
-                    } else {
-                        doneB++;
+
+                    // 同时发送这一批的所有请求（不等待返回）
+                    batchTasks.forEach(async (task) => {
+                        try {
+                            const target = task.item;
+                            const result = await ocrImage(target.file);
+                            target.text = result.text;
+                            target.confidence = result.confidence;
+                            if (target.domP) {
+                                target.domP.textContent = (target.text && target.text.trim()) ? target.text : "未识别到文字";
+                            }
+                            if (task.group === 'a') {
+                                doneA++;
+                            } else {
+                                doneB++;
+                            }
+                            logEl.textContent = `A组进度: ${doneA}/${totalA}  B组进度: ${doneB}/${totalB}\n`;
+                        } catch (err) {
+                            console.error('识别失败:', err);
+                        }
+                    });
+
+                    logEl.textContent = `已发送批次 ${batchIndex + 1}/${Math.ceil(allTasks.length / BATCH_SIZE)}，等待结果返回...\nA组进度: ${doneA}/${totalA}  B组进度: ${doneB}/${totalB}\n`;
+                    batchIndex++;
+                }
+
+                // 等待所有请求完成（给个合理的超时时间）
+                const maxWaitTime = Math.ceil(allTasks.length / BATCH_SIZE) * BATCH_INTERVAL + 5000;
+                const checkInterval = setInterval(() => {
+                    if (doneA + doneB >= allTasks.length) {
+                        clearInterval(checkInterval);
                     }
-                    logEl.textContent = `A组进度: ${doneA}/${totalA}  B组进度: ${doneB}/${totalB}\n`;
+                }, 100);
+
+                // 等待所有任务完成或超时
+                await new Promise((resolve) => {
+                    const timeout = setTimeout(() => {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }, maxWaitTime);
+
+                    const check = setInterval(() => {
+                        if (doneA + doneB >= allTasks.length) {
+                            clearTimeout(timeout);
+                            clearInterval(check);
+                            resolve();
+                        }
+                    }, 100);
                 });
             }
 
@@ -1447,7 +1587,7 @@
                 if (remainingUnmatched > 0) {
                     logMessage += `，还有 ${remainingUnmatched} 张需要手动匹配`;
                 }
-                logMessage += `。\n未匹配的图片已排在前边，方便手动匹配。`;
+                logMessage += `。\n已匹配的图片已排在前边，按尺寸从小到大显示。`;
                 logEl.textContent = logMessage;
             } else {
                 logEl.textContent = "识别完成！所有B组图片都已匹配。";
@@ -1550,7 +1690,91 @@
                 logMessage += `\n⚠️ 发现重复名称，已重命名并归类到未匹配: ${duplicateB.file.name} → ${duplicateB.downloadName}`;
             }
 
-            logMessage += `\n已匹配的图片会按尺寸排序显示。`;
+            logMessage += `\n已匹配的图片已排在前边，按尺寸从小到大显示。`;
+            logEl.textContent = logMessage;
+        });
+
+        // 强制匹配按钮事件（无视尺寸限制）
+        document.getElementById("forceMatchBtn").addEventListener("click", () => {
+            if (!selectedA || !selectedB) {
+                alert("请先选择A组和B组的图片进行匹配！");
+                return;
+            }
+
+            const a = selectedA, b = selectedB;
+
+            // 如果B组图片已经匹配过，先清除之前的匹配关系
+            if (b.matched && b.matchedA) {
+                const previousA = b.matchedA;
+                const stillMatched = bResults.some(otherB => otherB.matched && otherB.matchedA === previousA && otherB !== b);
+                if (!stillMatched) {
+                    previousA.matched = false;
+                }
+            }
+
+            const suffix = b.file.name.split(".").pop();
+            const newName = a.file.name.split(".")[0] + "." + suffix;
+            const link = URL.createObjectURL(b.file);
+
+            // 计算相似度
+            const similarity = stringSimilarity.compareTwoStrings(b.text || '', a.text || '');
+
+            // 检查是否有其他B组图片使用了相同的重命名
+            const duplicateB = bResults.find(otherB =>
+                otherB !== b &&
+                otherB.downloadName === newName &&
+                otherB.matched
+            );
+
+            if (duplicateB) {
+                const duplicateNewName = `unmatched_${Date.now()}_${duplicateB.file.name}`;
+                duplicateB.matched = false;
+                duplicateB.downloadName = duplicateNewName;
+                duplicateB.downloadLink = null;
+                duplicateB.matchedA = null;
+                duplicateB.autoMatched = false;
+                duplicateB.manualMatched = false;
+
+                if (duplicateB.matchedA) {
+                    const duplicateA = duplicateB.matchedA;
+                    const stillMatched = bResults.some(otherB =>
+                        otherB.matched && otherB.matchedA === duplicateA && otherB !== duplicateB
+                    );
+                    if (!stillMatched) {
+                        duplicateA.matched = false;
+                    }
+                }
+            }
+
+            b.downloadLink = link;
+            b.downloadName = newName;
+            b.matched = true;
+            b.similarity = similarity;
+            b.manualMatched = true;
+            b.forceMatched = true; // 标记为强制匹配
+            b.matchedA = a;
+            a.matched = true;
+
+            // 重新渲染
+            renderImages(document.getElementById("aPreview"), aResults, "a");
+            renderImages(document.getElementById("bPreview"), bResults, "b");
+
+            selectedA = null;
+            selectedB = null;
+            updateSelection();
+            enableSingleSelect();
+            updateStats();
+
+            // 更新日志
+            const logEl = document.getElementById("log");
+            let logMessage = `⚠️ 强制匹配成功！\nB组: ${b.file.name} → ${newName}\nA组尺寸: ${a.width}x${a.height}\nB组尺寸: ${b.width}x${b.height}\n相似度: ${Math.round(similarity * 100)}%`;
+
+            if (duplicateB) {
+                logMessage += `\n⚠️ 发现重复名称，已重命名并归类到未匹配: ${duplicateB.file.name} → ${duplicateB.downloadName}`;
+            }
+
+            logMessage += `\n\n⚠️ 注意：此图片为强制匹配，尺寸不一致可能导致显示异常！`;
+            logMessage += `\n已匹配的图片已排在前边，按尺寸从小到大显示。`;
             logEl.textContent = logMessage;
         });
 
@@ -1642,22 +1866,23 @@
             const label = document.getElementById("qpsValue");
             const sync = () => {
                 if (!input || !label) return;
-                const v = parseInt(input.value || "2", 10);
-                label.textContent = (isNaN(v) || v < 1 ? 2 : v).toString();
+                const v = parseInt(input.value || "6", 10);
+                label.textContent = (isNaN(v) || v < 1 ? 6 : v).toString();
             };
 
             // 从服务器获取配置并更新 QPS 滑块
             try {
-                const res = await fetch("http://localhost:3000/config");
+                const res = await fetch(`${API_BASE_URL}/config`);
                 const config = await res.json();
                 if (config.maxQPS) {
                     input.max = config.maxQPS;
-                    input.value = Math.min(parseInt(input.value), config.maxQPS);
+                    // 使用服务器配置的 maxQPS 作为默认值（如果服务器支持的话）
+                    input.value = Math.min(6, config.maxQPS);
                     sync();
                     console.log(`✅ 已从服务器获取配置: 最大QPS=${config.maxQPS} (${config.totalKeys}个API Key)`);
                 }
             } catch (e) {
-                console.warn('⚠️ 无法获取服务器配置，使用默认QPS限制');
+                console.warn('⚠️ 无法获取服务器配置，使用默认QPS限制=6');
             }
 
             if (input) {

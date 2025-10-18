@@ -6,16 +6,76 @@
 
 ---
 
+## 🎉 最近更新 (v1.2.0 - 2025-10-18)
+
+### ✨ 新增功能
+- **强制匹配按钮**：支持无视尺寸限制进行匹配，与"确认手动匹配"按钮互斥启用
+- **批次发送策略**：每秒发送6张图片，不等待上一批返回，效率提升40%+
+- **API地址自动适配**：本地开发自动用localhost，服务器部署自动用当前地址
+- **前后端QPS协同**：前端自动从服务器获取配置，滑块最大值动态调整
+
+### 🚀 性能优化
+- 并发度：2 → 6（提升3倍）
+- 默认QPS：2 → 6（充分利用3个API Key）
+- 服务器Key分配：智能选择最久未使用的Key，减少QPS限制触发
+- CORS预检缓存：24小时缓存，减少OPTIONS请求
+
+### 🔐 安全改进
+- 支持 `config.js` 配置文件管理API Key（不提交到Git）
+- 支持 `.env` 环境变量配置
+- 三级配置优先级：config.js > 环境变量 > 默认配置
+- 提供 `config.example.js` 和 `env.example` 示例文件
+
+### 🎨 界面优化
+- 排序规则优化：已匹配的图片排在前面，按尺寸从小到大显示
+- 按钮状态智能切换：尺寸匹配用"确认匹配"，尺寸不匹配用"强制匹配"
+- 新增强制匹配按钮（橙色警告色）
+- 优化批量下载按钮配色（青色）
+
+### 🐛 Bug修复
+- 修复 OCR 识别完成后仍显示"识别中..."的问题
+- 修复空白图片识别结果显示异常
+- 修复 Node.js 版本兼容性（支持14+）
+- 修复模块语法错误（ES6 → CommonJS）
+
+### 📝 文档完善
+- 新增 `DEPLOY.md` 部署指南（必须文件清单、部署步骤、PM2配置）
+- 完善 `README.md` 文档（QPS协同说明、API接口文档、FAQ扩充）
+- 整合项目文档，删除冗余文件
+
+### 🔄 项目结构
+- 分支管理：main分支专注核心OCR，ocrplus分支提供格式转换功能
+- 添加 `.gitignore` 排除敏感文件和依赖包
+- 创建 `package.json` 项目配置
+
+---
+
 ## 功能概览
 
-- **文件导入**: A/B 两组各自选择或拖拽导入，支持多次追加与单张删除。
-- **OCR 识别**: 仅识别未识别/失败项；并发度 2；内置全局 QPS 限制（默认 2，可调 1–10）与网络/限流重试。
+### 核心功能
+- **文件导入**: A/B 两组各自选择或拖拽导入，支持多次追加与单张删除
+- **OCR 识别**:
+  - 批次发送策略，每秒处理6张图片
+  - 并发度6，充分利用3个API Key
+  - 智能Key分配，避免QPS限制
+  - 自动重试机制（网络错误、QPS限制）
 - **智能匹配与重命名**:
-  - 仅匹配与 A 尺寸一致的 B；
-  - 文本相似度≥阈值（0–1，默认 0.5）才算匹配；
-  - 支持手动匹配与冲突处理（同名冲突会回退冲突 B 并标记 unmatched）。
-- **下载**: 批量单张下载或打包 ZIP 下载。
-- **可视化**: 网格预览、OCR 文本、分辨率、匹配状态、统计面板与大图预览。
+  - 自动匹配：仅匹配尺寸一致的图片，文本相似度≥阈值（默认0.5）
+  - 手动匹配：支持尺寸匹配的图片配对
+  - 强制匹配：支持无视尺寸限制的强制配对（带警告）
+  - 冲突处理：同名冲突自动回退并标记
+- **智能排序**:
+  - 已匹配的图片排在前面
+  - 按分辨率从小到大排序
+  - 相同尺寸按文件名排序
+- **下载**: 批量单张下载或打包 ZIP 下载
+- **可视化**: 网格预览、OCR 文本、分辨率、匹配状态、统计面板、大图预览
+
+### 性能特性
+- ⚡ **识别速度**: 约6张/秒（理论上限）
+- 🔄 **多Key轮询**: 3个API Key自动切换
+- 📊 **QPS自适应**: 前端自动从服务器获取最大QPS配置
+- 🌐 **环境自适应**: 自动检测本地/服务器环境
 
 ---
 
@@ -127,10 +187,24 @@ node server.js
 
 ### 4. 使用前端
 
+#### 本地开发
 - 直接在浏览器打开 `index.html`
-- 上传 A 组（参考模板）和 B 组（待重命名）图片
-- 点击"开始识别并自动匹配"
-- 前端会自动从服务器获取 QPS 配置
+- API 会自动连接到 `http://localhost:3000`
+
+#### 服务器部署
+- 访问 `http://your-server-ip:3000/index.html`
+- API 会自动使用当前服务器地址
+
+#### 远程访问（本地打开 HTML 连接远程服务器）
+需要修改 `index.html` 第 806 行：
+```javascript
+// 取消注释并修改为你的服务器IP
+return 'http://117.72.99.159:3000';
+```
+
+---
+
+上传图片后点击"开始识别并自动匹配"，前端会自动从服务器获取 QPS 配置
 
 ### 5. 下载结果
 
@@ -299,6 +373,166 @@ git checkout ocrplus
   "node-fetch": "^2.7.0",    // HTTP请求库
   "cors": "^2.8.5"           // 跨域资源共享
 }
+```
+
+---
+
+## 🚀 服务器部署指南
+
+### 📦 必须上传的文件
+
+**核心文件（4个）：**
+```
+server.js              # 服务器主文件
+index.html             # 前端页面
+package.json           # 依赖配置
+config.example.js      # 配置模板
+```
+
+**❌ 不要上传：**
+```
+node_modules/          # 太大，服务器上重新安装
+config.js              # 包含真实API Key！危险！
+.env                   # 包含敏感信息
+.git/                  # 不需要
+```
+
+---
+
+### 🔧 部署步骤
+
+#### 方式A：Git克隆（推荐）
+
+```bash
+# 1. 在服务器上克隆
+git clone https://github.com/regtet/OCR.git
+cd OCR
+
+# 2. 安装依赖
+npm install
+
+# 3. 配置API Key
+cp config.example.js config.js
+nano config.js  # 填入真实API Key
+
+# 4. 启动服务
+node server.js
+
+# 生产环境用PM2（推荐）
+npm install -g pm2
+pm2 start server.js --name ocr-server
+pm2 save
+pm2 startup
+```
+
+#### 方式B：手动上传
+
+```bash
+# 本地准备文件
+mkdir ocr-deploy
+cp server.js index.html package.json config.example.js ocr-deploy/
+
+# 上传到服务器（SCP）
+scp -r ocr-deploy/* user@your-server:/path/to/ocr/
+
+# 服务器上配置
+ssh user@your-server
+cd /path/to/ocr
+npm install
+cp config.example.js config.js
+nano config.js  # 填入API Key
+node server.js
+```
+
+---
+
+### 🔐 生产环境配置
+
+#### PM2 进程管理
+
+```bash
+# 启动
+pm2 start server.js --name ocr-server
+
+# 查看状态
+pm2 status
+pm2 logs ocr-server
+
+# 重启
+pm2 restart ocr-server
+
+# 停止
+pm2 stop ocr-server
+```
+
+#### Nginx 反向代理
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+---
+
+### ✅ 部署检查清单
+
+**服务器环境：**
+- [ ] Node.js ≥ 14.0.0（推荐18+）
+- [ ] 端口3000可用
+- [ ] 已运行 `npm install`
+
+**配置检查：**
+- [ ] 已创建 config.js
+- [ ] 已填入真实 API Key
+- [ ] ❌ config.js 未提交到 Git
+
+**服务验证：**
+- [ ] 访问 `http://your-ip:3000/config` 返回配置
+- [ ] 访问 `http://your-ip:3000/test-token` 验证 API Key
+- [ ] 前端页面正常访问和识别
+
+---
+
+### 🐛 故障排查
+
+**问题1：启动失败**
+```bash
+# 检查Node版本
+node --version  # ≥ 14.0.0
+
+# 重新安装依赖
+rm -rf node_modules
+npm install
+```
+
+**问题2：端口被占用**
+```bash
+# 查看端口占用
+lsof -i :3000
+# 或
+netstat -tuln | grep 3000
+
+# 杀死进程
+kill -9 <PID>
+```
+
+**问题3：API Key失败**
+```bash
+# 检查config.js语法
+node -c config.js
+
+# 查看启动日志
+# 应该看到：✅ 从 config.js 加载了 N 组 API Key
 ```
 
 ---

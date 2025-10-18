@@ -8,7 +8,14 @@ const path = require('path');
 
 const app = express();
 
-app.use(cors());
+// CORS 配置：允许跨域并缓存预检结果
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type'],
+    credentials: false,
+    maxAge: 86400 // 预检结果缓存24小时，减少OPTIONS请求
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // ============================================================
@@ -70,6 +77,9 @@ if (API_KEYS.length === 0) {
 // 当前轮询索引
 let currentKeyIndex = 0;
 
+// 记录每个 Key 的最后使用时间，避免短时间内重复使用同一个 Key
+const keyLastUsedTime = new Map();
+
 // 获取 Access Token（支持多 Key）
 async function getAccessToken(keyConfig) {
     const now = Date.now();
@@ -90,11 +100,40 @@ async function getAccessToken(keyConfig) {
     return keyConfig.accessToken;
 }
 
-// 轮询获取下一个可用的 Key
+// 轮询获取下一个可用的 Key（优化版：避免短时间重复使用）
 function getNextKey() {
-    const key = API_KEYS[currentKeyIndex];
-    currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
-    return key;
+    const now = Date.now();
+    let selectedKey = null;
+    let minWaitTime = Infinity;
+
+    // 找到最久未使用的 Key
+    for (const key of API_KEYS) {
+        const lastUsed = keyLastUsedTime.get(key.id) || 0;
+        const waitTime = now - lastUsed;
+
+        // 如果这个 Key 超过 500ms 未使用，优先选择它
+        if (waitTime >= 500) {
+            selectedKey = key;
+            break;
+        }
+
+        // 否则记录等待时间最长的
+        if (waitTime < minWaitTime) {
+            minWaitTime = waitTime;
+            selectedKey = key;
+        }
+    }
+
+    // 如果没找到，使用轮询
+    if (!selectedKey) {
+        selectedKey = API_KEYS[currentKeyIndex];
+        currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+    }
+
+    // 记录使用时间
+    keyLastUsedTime.set(selectedKey.id, now);
+
+    return selectedKey;
 }
 
 // OCR 接口（支持多 Key 轮询与智能重试）
@@ -122,7 +161,7 @@ app.post('/ocr', async (req, res) => {
             // 检查是否是 QPS 限制错误
             const errorMsg = data.error_msg || '';
             if (data.error_code === 18 || errorMsg.includes('qps') || errorMsg.includes('limit')) {
-                console.log(`Key${keyConfig.id} 遇到 QPS 限制，尝试下一个 Key...`);
+                console.log(`🔄 Key${keyConfig.id} 达到限制，自动切换到下一个 Key（正常容错机制）`);
                 lastError = data;
                 continue; // 尝试下一个 Key
             }
