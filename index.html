@@ -1020,8 +1020,8 @@
 
                 if (type === "a") {
                     // A组：检查是否被任何B组图片匹配
-                    aMatched = bResults.some(b => b.matched && b.matchedA === a);
-                    bMatched = bResults.some(b => b.matched && b.matchedA === b);
+                    aMatched = bResults.some(bItem => bItem.matched && bItem.matchedA === a);
+                    bMatched = bResults.some(bItem => bItem.matched && bItem.matchedA === b);
                 } else {
                     // B组：直接使用matched属性
                     aMatched = a.matched;
@@ -1040,7 +1040,13 @@
                 // 第三优先级：使用downloadName进行排序，如果没有downloadName则使用file.name
                 const aName = a.downloadName || a.file.name;
                 const bName = b.downloadName || b.file.name;
-                return aName.localeCompare(bName);
+                const nameComparison = aName.localeCompare(bName);
+                if (nameComparison !== 0) {
+                    return nameComparison;
+                }
+
+                // 第四优先级：按上传顺序排序（保持相对顺序稳定）
+                return (a.uploadIndex || 0) - (b.uploadIndex || 0);
             });
 
             results.forEach(r => {
@@ -1158,7 +1164,10 @@
 
             // 基于现有结果进行追加，而不是每次重置
             const results = (type === "a" ? aResults : bResults).slice();
-            for (const f of files) {
+            const currentMaxIndex = results.length > 0 ? Math.max(...results.map(r => r.uploadIndex || 0)) : -1;
+
+            for (let i = 0; i < files.length; i++) {
+                const f = files[i];
                 const base64URL = await convertImageToBase64(f);
                 // 获取图片分辨率
                 const img = new Image();
@@ -1176,16 +1185,21 @@
                     matched: false,
                     width: img.width,
                     height: img.height,
-                    resolution: img.width * img.height
+                    resolution: img.width * img.height,
+                    uploadIndex: currentMaxIndex + i + 1  // 添加上传顺序索引
                 })
             }
 
-            // 按分辨率从小到大排序，分辨率相同时按名称排序
+            // 按分辨率从小到大排序，分辨率相同时按名称排序，再按上传顺序
             results.sort((a, b) => {
                 if (a.resolution !== b.resolution) {
                     return a.resolution - b.resolution;
                 }
-                return a.file.name.localeCompare(b.file.name);
+                const nameComparison = a.file.name.localeCompare(b.file.name);
+                if (nameComparison !== 0) {
+                    return nameComparison;
+                }
+                return (a.uploadIndex || 0) - (b.uploadIndex || 0);
             });
 
             // 回写到全局并渲染
