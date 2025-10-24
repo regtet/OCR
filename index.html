@@ -708,17 +708,17 @@
 
 <body>
     <div class="main-container">
-    <h2>OCR匹配下载工具</h2>
+        <h2>OCR匹配下载工具</h2>
 
         <div class="stats">
             <div class="stat-item">
                 <div class="stat-number" id="aCount">0</div>
                 <div class="stat-label">A组图片</div>
-    </div>
+            </div>
             <div class="stat-item">
                 <div class="stat-number" id="bCount">0</div>
                 <div class="stat-label">B组图片</div>
-    </div>
+            </div>
             <div class="stat-item">
                 <div class="stat-number" id="matchedCount">0</div>
                 <div class="stat-label">已匹配</div>
@@ -730,12 +730,15 @@
         </div>
 
         <div class="controls">
-            <label style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fff;border-radius:10px;border:1px solid #e0e0e0;">
+            <label
+                style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fff;border-radius:10px;border:1px solid #e0e0e0;">
                 相似度阈值
-                <input id="thresholdInput" type="range" min="0" max="1" step="0.01" value="0.5" style="width:160px;">
-                <span id="thresholdValue" style="min-width:36px;text-align:right;font-weight:700;color:#667eea;">0.50</span>
+                <input id="thresholdInput" type="range" min="0" max="1" step="0.01" value="0.75" style="width:160px;">
+                <span id="thresholdValue"
+                    style="min-width:36px;text-align:right;font-weight:700;color:#667eea;">0.75</span>
             </label>
-            <label style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fff;border-radius:10px;border:1px solid #e0e0e0;">
+            <label
+                style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fff;border-radius:10px;border:1px solid #e0e0e0;">
                 QPS限制(每秒请求数)
                 <input id="qpsInput" type="range" min="1" max="10" step="1" value="6" style="width:160px;">
                 <span id="qpsValue" style="min-width:24px;text-align:right;font-weight:700;color:#9C27B0;">6</span>
@@ -800,10 +803,10 @@
 
             // 方式2: 如果是本地 file:// 打开
             // 默认使用 localhost（本地开发）
-            return 'http://localhost:3000';
+            // return 'http://localhost:3000';
 
             // 如果要连接远程服务器，取消下面这行的注释并修改IP：
-            // return 'http://xxx.xxx.xxx.xxx:3000';
+            return 'http://117.72.99.159:3000';
         })();
 
         console.log(`📡 API服务器地址: ${API_BASE_URL}`);
@@ -845,7 +848,7 @@
                 if (data.error_code === 18 || data.error_msg?.includes("qps") || data.error_msg?.includes("limit") || data.error_msg?.includes("Open api qps request limit reached")) {
                     if (retryCount < 5) {
                         const waitTime = 5000 * (retryCount + 1); // 5秒、10秒、15秒、20秒、25秒
-                        console.log(`QPS限制，等待 ${waitTime/1000} 秒后重试... (${retryCount + 1}/5)`);
+                        console.log(`QPS限制，等待 ${waitTime / 1000} 秒后重试... (${retryCount + 1}/5)`);
                         await sleep(waitTime);
                         return await ocrImage(file, retryCount + 1);
                     } else {
@@ -1141,12 +1144,32 @@
                     div.appendChild(sizeIndicator);
                 }
 
-                if (r.downloadLink && type === "b") {
+                if (r.matched && type === "b") {
                     const a = document.createElement("a");
-                    a.href = r.downloadLink;
-                    a.download = r.downloadName;
+                    a.href = "#";
+                    a.download = r.downloadName || r.file.name;
                     a.textContent = "下载";
                     a.className = "download-link";
+                    a.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        try {
+                            // 重新创建 downloadLink，避免 URL 过期
+                            const downloadLink = URL.createObjectURL(r.file);
+                            const downloadA = document.createElement("a");
+                            downloadA.href = downloadLink;
+                            downloadA.download = r.downloadName || r.file.name;
+                            downloadA.style.display = "none";
+                            document.body.appendChild(downloadA);
+                            downloadA.click();
+                            setTimeout(() => {
+                                document.body.removeChild(downloadA);
+                                URL.revokeObjectURL(downloadLink);
+                            }, 100);
+                        } catch (error) {
+                            console.error("单张下载失败:", error);
+                            alert("下载失败，请重试！");
+                        }
+                    });
                     div.appendChild(a)
                 }
 
@@ -1792,31 +1815,99 @@
             logEl.textContent = logMessage;
         });
 
-        document.getElementById("batchDownloadBtn").addEventListener("click", () => {
-            bResults.filter(b => b.matched).forEach(b => {
-                const a = document.createElement("a");
-                a.href = b.downloadLink;
-                a.download = b.downloadName;
-                a.style.display = "none";
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a)
-            })
+        document.getElementById("batchDownloadBtn").addEventListener("click", async () => {
+            const matchedResults = bResults.filter(b => b.matched);
+            if (matchedResults.length === 0) {
+                alert("没有已匹配的图片可以下载！");
+                return;
+            }
+
+            console.log(`开始批量下载 ${matchedResults.length} 张图片...`);
+
+            // 使用延迟下载避免浏览器限制
+            for (let i = 0; i < matchedResults.length; i++) {
+                const b = matchedResults[i];
+
+                try {
+                    // 重新创建 downloadLink，避免 URL 过期
+                    const downloadLink = URL.createObjectURL(b.file);
+
+                    const a = document.createElement("a");
+                    a.href = downloadLink;
+                    a.download = b.downloadName || `matched_${i + 1}.${b.file.name.split('.').pop()}`;
+                    a.style.display = "none";
+                    document.body.appendChild(a);
+
+                    // 触发下载
+                    a.click();
+
+                    // 清理
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(downloadLink);
+                    }, 100);
+
+                    // 每张图片间隔 200ms，避免浏览器限制
+                    if (i < matchedResults.length - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+
+                } catch (error) {
+                    console.error(`下载第 ${i + 1} 张图片失败:`, error);
+                    // 继续下载其他图片，不中断整个流程
+                }
+            }
+
+            console.log("批量下载完成！");
         });
 
         document.getElementById("zipDownloadBtn").addEventListener("click", async () => {
-            const zip = new JSZip();
-            bResults.filter(b => b.matched).forEach((b, i) => {
-                zip.file(b.downloadName, b.file)
-            });
-            const content = await zip.generateAsync({ type: "blob" });
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(content);
-            a.download = "matched_B_group.zip";
-            a.style.display = "none";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a)
+            const matchedResults = bResults.filter(b => b.matched);
+            if (matchedResults.length === 0) {
+                alert("没有已匹配的图片可以打包下载！");
+                return;
+            }
+
+            try {
+                console.log(`开始打包 ${matchedResults.length} 张图片...`);
+                const zip = new JSZip();
+
+                // 添加文件到 ZIP，使用安全的文件名
+                matchedResults.forEach((b, i) => {
+                    const fileName = b.downloadName || `matched_${i + 1}.${b.file.name.split('.').pop()}`;
+                    // 确保文件名安全，移除特殊字符
+                    const safeFileName = fileName.replace(/[<>:"/\\|?*]/g, '_');
+                    zip.file(safeFileName, b.file);
+                });
+
+                console.log("正在生成 ZIP 文件...");
+                const content = await zip.generateAsync({
+                    type: "blob",
+                    compression: "DEFLATE",
+                    compressionOptions: { level: 6 }
+                });
+
+                // 创建下载链接
+                const blobUrl = URL.createObjectURL(content);
+                const a = document.createElement("a");
+                a.href = blobUrl;
+                a.download = `matched_B_group_${new Date().getTime()}.zip`;
+                a.style.display = "none";
+                document.body.appendChild(a);
+                a.click();
+
+                // 清理
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(blobUrl);
+                }, 100);
+
+                console.log("ZIP 下载完成！");
+
+            } catch (error) {
+                console.error("ZIP 打包失败:", error);
+                alert("ZIP 打包失败，请重试！");
+            }
         });
 
         document.getElementById("resetBtn").addEventListener("click", () => {
@@ -1850,7 +1941,7 @@
         });
 
         // 相似度阈值控件联动显示
-        (function(){
+        (function () {
             const input = document.getElementById("thresholdInput");
             const label = document.getElementById("thresholdValue");
             const sync = () => {
@@ -1875,7 +1966,7 @@
         })();
 
         // QPS 动态显示与服务器配置同步
-        (async function(){
+        (async function () {
             const input = document.getElementById("qpsInput");
             const label = document.getElementById("qpsValue");
             const sync = () => {
