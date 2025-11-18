@@ -78,6 +78,37 @@
             border-radius: 2px;
         }
 
+        .group-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        #clearBBtn {
+            border: none;
+            padding: 6px 12px;
+            border-radius: 8px;
+            background: linear-gradient(45deg, #ff9a9e, #ff6a88);
+            color: #fff;
+            cursor: pointer;
+            font-weight: 600;
+            box-shadow: 0 4px 8px rgba(255, 105, 135, 0.25);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        #clearBBtn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 12px rgba(255, 105, 135, 0.35);
+        }
+
+        #clearBBtn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
         label {
             font-weight: 600;
             display: block;
@@ -764,7 +795,10 @@
             </div>
 
             <div class="group">
-                <h3>🎯 B组图片（需要重命名）</h3>
+                <div class="group-header">
+                    <h3>🎯 B组图片（需要重命名）</h3>
+                    <button id="clearBBtn" type="button">🧹 清空B组</button>
+                </div>
                 <div class="file-input-section">
                     <input type="file" id="bFiles" multiple accept="image/*" style="display: none;">
                     <button id="selectBImages" class="select-btn">📂 选择B组图片</button>
@@ -1346,6 +1380,47 @@
 
         document.getElementById("selectBImages").addEventListener("click", () => {
             document.getElementById("bFiles").click();
+        });
+
+        document.getElementById("clearBBtn").addEventListener("click", () => {
+            const logEl = document.getElementById("log");
+
+            if (bResults.length === 0) {
+                if (logEl) {
+                    logEl.textContent = "ℹ️ 当前没有B组图片，无需清空。\n";
+                }
+                return;
+            }
+
+            bResults.forEach(b => {
+                if (b.downloadLink) {
+                    try {
+                        URL.revokeObjectURL(b.downloadLink);
+                    } catch (e) {
+                        console.warn("释放URL失败", e);
+                    }
+                }
+            });
+
+            bResults = [];
+            selectedB = null;
+
+            const bPreviewEl = document.getElementById("bPreview");
+            if (bPreviewEl) bPreviewEl.innerHTML = "";
+
+            const bFilesEl = document.getElementById("bFiles");
+            if (bFilesEl) bFilesEl.value = "";
+
+            const bCountEl = document.getElementById("bFileCount");
+            if (bCountEl) bCountEl.textContent = "未选择文件";
+
+            updateStats();
+            enableSingleSelect();
+            updateSelection();
+
+            if (logEl) {
+                logEl.textContent = "🧹 已清空B组上传的所有图片。\n";
+            }
         });
 
         // 拖拽上传功能（只用于文件上传，不影响图片匹配）
