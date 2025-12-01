@@ -7,6 +7,8 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
+const DATA_DIR = path.join(__dirname, 'data');
+const TEMPLATE_FILE = path.join(DATA_DIR, 'a_templates.json');
 
 // CORS 配置：允许跨域并缓存预检结果
 app.use(cors({
@@ -17,6 +19,36 @@ app.use(cors({
     maxAge: 86400 // 预检结果缓存24小时，减少OPTIONS请求
 }));
 app.use(express.json({ limit: '50mb' }));
+
+// 确保数据目录存在
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// 读取 A 组模板配置
+function readATemplates() {
+    try {
+        if (!fs.existsSync(TEMPLATE_FILE)) {
+            return [];
+        }
+        const content = fs.readFileSync(TEMPLATE_FILE, 'utf-8');
+        if (!content.trim()) return [];
+        const data = JSON.parse(content);
+        return Array.isArray(data) ? data : [];
+    } catch (e) {
+        console.error('读取 A 组模板配置失败:', e);
+        return [];
+    }
+}
+
+// 写入 A 组模板配置
+function writeATemplates(templates) {
+    try {
+        fs.writeFileSync(TEMPLATE_FILE, JSON.stringify(templates, null, 2), 'utf-8');
+    } catch (e) {
+        console.error('写入 A 组模板配置失败:', e);
+    }
+}
 
 // ============================================================
 // 多组 API Key 配置（轮询策略，提高 QPS 上限）
@@ -186,6 +218,62 @@ app.get('/config', (req, res) => {
         maxQPS: API_KEYS.length * 2, // 每个 Key 支持 2 QPS
         recommendedQPS: Math.min(API_KEYS.length * 2, 6)
     });
+});
+
+// 获取本地保存的 A 组模板列表
+app.get('/a-templates', (req, res) => {
+    const templates = readATemplates();
+    res.json({
+        templates: templates.map(t => ({
+            id: t.id,
+            name: t.name,
+            createdAt: t.createdAt,
+            aCount: Array.isArray(t.items) ? t.items.length : 0
+        }))
+    });
+});
+
+// 获取单个 A 组模板详情
+app.get('/a-templates/:id', (req, res) => {
+    const { id } = req.params;
+    const templates = readATemplates();
+    const tpl = templates.find(t => t.id === id);
+    if (!tpl) {
+        return res.status(404).json({ error: '模板不存在' });
+    }
+    res.json(tpl);
+});
+
+// 保存/新增一个 A 组模板
+app.post('/a-templates', (req, res) => {
+    const { name, items } = req.body || {};
+    if (!name || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: '参数不完整，需提供 name 和非空 items 数组' });
+    }
+
+    const now = new Date();
+    const id = `${now.getTime()}_${Math.floor(Math.random() * 100000)}`;
+
+    const safeItems = items.map(it => ({
+        fileName: it.fileName || 'unknown.png',
+        width: Number(it.width) || 0,
+        height: Number(it.height) || 0,
+        text: typeof it.text === 'string' ? it.text : '',
+        confidence: Number(it.confidence) || 0,
+        base64: typeof it.base64 === 'string' ? it.base64 : '',
+        mimeType: it.mimeType || 'image/jpeg'
+    }));
+
+    const templates = readATemplates();
+    templates.push({
+        id,
+        name,
+        createdAt: now.toISOString(),
+        items: safeItems
+    });
+    writeATemplates(templates);
+
+    res.json({ success: true, id });
 });
 
 // 测试接口，验证所有 API Key 是否有效

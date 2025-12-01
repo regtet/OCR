@@ -450,8 +450,8 @@
             flex-wrap: wrap;
             gap: 10px;
             justify-content: center;
-            margin: 10px 0;
-            padding: 12px;
+            margin: 10px 0 4px 0;
+            padding: 12px 12px 6px 12px;
             background: #f8f9fa;
             border-radius: 10px;
         }
@@ -465,6 +465,64 @@
         .controls button:disabled:hover {
             transform: none !important;
             box-shadow: none !important;
+        }
+
+        .config-chip {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: #fff;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+        }
+
+        .config-chip-title {
+            font-size: 13px;
+            color: #555;
+            white-space: nowrap;
+        }
+
+        #aTemplateSelect {
+            min-width: 180px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            outline: none;
+            font-size: 13px;
+            background: #fdfdfd;
+        }
+
+        #aTemplateSelect:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+        }
+
+        #saveATemplateBtn {
+            background: linear-gradient(45deg, #607D8B, #455A64);
+            color: #fff;
+            box-shadow: 0 4px 8px rgba(69, 90, 100, 0.3);
+        }
+
+        #saveATemplateBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(69, 90, 100, 0.4);
+        }
+
+        #applyATemplateBtn {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 16px;
+            background: linear-gradient(45deg, #3F51B5, #303F9F);
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(63, 81, 181, 0.35);
+            min-width: 64px;
+        }
+
+        #applyATemplateBtn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(63, 81, 181, 0.45);
         }
 
         /* 图片预览模态框样式 */
@@ -761,15 +819,13 @@
         </div>
 
         <div class="controls">
-            <label
-                style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fff;border-radius:10px;border:1px solid #e0e0e0;">
+            <label class="config-chip">
                 相似度阈值
                 <input id="thresholdInput" type="range" min="0" max="1" step="0.01" value="0.75" style="width:160px;">
                 <span id="thresholdValue"
                     style="min-width:36px;text-align:right;font-weight:700;color:#667eea;">0.75</span>
             </label>
-            <label
-                style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fff;border-radius:10px;border:1px solid #e0e0e0;">
+            <label class="config-chip">
                 QPS限制(每秒请求数)
                 <input id="qpsInput" type="range" min="1" max="10" step="1" value="6" style="width:160px;">
                 <span id="qpsValue" style="min-width:24px;text-align:right;font-weight:700;color:#9C27B0;">6</span>
@@ -777,9 +833,17 @@
             <button id="startBtn">🚀 开始识别并自动匹配</button>
             <button id="confirmBtn" disabled>✅ 确认手动匹配</button>
             <button id="forceMatchBtn" disabled>⚠️ 强制匹配</button>
+            <button id="saveATemplateBtn">💾 保存A组配置</button>
             <button id="batchDownloadBtn">📥 批量单张下载</button>
             <button id="zipDownloadBtn">📦 批量ZIP下载</button>
             <button id="resetBtn">🔄 重置</button>
+            <label class="config-chip">
+                <span class="config-chip-title">已保存A组配置</span>
+                <select id="aTemplateSelect">
+                    <option value="">无</option>
+                </select>
+                <button id="applyATemplateBtn" type="button">应用</button>
+            </label>
         </div>
 
         <div class="comparison-layout">
@@ -1273,11 +1337,143 @@
 
         let aResults = [], bResults = [], selectedA = null, selectedB = null;
         let ocrDoneOnce = false;
+        let aTemplatesCache = [];
+
+        function base64ToBlob(base64, mimeType = 'image/jpeg') {
+            const byteChars = atob(base64);
+            const byteNumbers = new Array(byteChars.length);
+            for (let i = 0; i < byteChars.length; i++) {
+                byteNumbers[i] = byteChars.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            return new Blob([byteArray], { type: mimeType });
+        }
 
         function getCurrentThreshold() {
             const el = document.getElementById("thresholdInput");
             const val = parseFloat(el && el.value ? el.value : "0.5");
             return isNaN(val) ? 0.5 : val;
+        }
+
+        async function refreshATemplates() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/a-templates`);
+                const data = await res.json();
+                const select = document.getElementById('aTemplateSelect');
+                if (!select) return;
+                select.innerHTML = '<option value="">无</option>';
+                const templates = Array.isArray(data.templates) ? data.templates : [];
+                aTemplatesCache = templates;
+                templates.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = `${t.name} (${t.aCount || 0} 张)`;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.warn('获取A组模板失败:', e);
+            }
+        }
+
+        async function saveATemplate() {
+            if (!aResults || aResults.length === 0) {
+                alert("当前没有A组图片，无法保存配置。");
+                return;
+            }
+            const name = prompt("请输入本次A组配置的名称（例如：模板-发票2024版）");
+            if (!name || !name.trim()) {
+                return;
+            }
+            const items = aResults.map(a => {
+                const url = a.url || '';
+                const base64 = url.includes(',') ? url.split(',')[1] : '';
+                const mimeType = url.startsWith('data:') ? url.substring(5, url.indexOf(';')) : 'image/jpeg';
+                return {
+                    fileName: a.file && a.file.name ? a.file.name : 'unknown.png',
+                    width: a.width || 0,
+                    height: a.height || 0,
+                    text: a.text || '',
+                    confidence: a.confidence || 0,
+                    base64,
+                    mimeType
+                };
+            });
+            try {
+                const res = await fetch(`${API_BASE_URL}/a-templates`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name.trim(), items })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || '保存失败');
+                }
+                alert("A组配置已保存。");
+                await refreshATemplates();
+            } catch (e) {
+                console.error('保存A组模板失败:', e);
+                alert("保存A组配置失败，请稍后重试。");
+            }
+        }
+
+        async function applyATemplate() {
+            const select = document.getElementById('aTemplateSelect');
+            if (!select || !select.value) {
+                alert("请先选择一个已保存的A组配置。");
+                return;
+            }
+            const id = select.value;
+            try {
+                const res = await fetch(`${API_BASE_URL}/a-templates/${id}`);
+                if (!res.ok) {
+                    throw new Error('模板不存在或已被删除');
+                }
+                const tpl = await res.json();
+                const items = Array.isArray(tpl.items) ? tpl.items : [];
+                if (items.length === 0) {
+                    alert("该配置中没有A组图片数据。");
+                    return;
+                }
+
+                aResults = [];
+                selectedA = null;
+
+                for (let i = 0; i < items.length; i++) {
+                    const it = items[i];
+                    const dataUrl = `data:${it.mimeType || 'image/jpeg'};base64,${it.base64 || ''}`;
+                    let fileObj = { name: it.fileName || 'unknown.png' };
+                    try {
+                        if (it.base64) {
+                            const blob = base64ToBlob(it.base64, it.mimeType || 'image/jpeg');
+                            fileObj = new File([blob], it.fileName || 'unknown.png', { type: it.mimeType || 'image/jpeg' });
+                        }
+                    } catch (e) {
+                        console.warn('从模板恢复文件对象失败，退回到简化对象:', e);
+                    }
+                    aResults.push({
+                        file: fileObj,
+                        url: dataUrl,
+                        text: it.text || '',
+                        downloadLink: null,
+                        downloadName: it.fileName || 'unknown.png',
+                        matched: false,
+                        width: it.width || 0,
+                        height: it.height || 0,
+                        resolution: (it.width || 0) * (it.height || 0),
+                        uploadIndex: i
+                    });
+                }
+
+                renderImages(document.getElementById("aPreview"), aResults, "a");
+                document.getElementById("aFileCount").textContent = `已从配置加载 ${aResults.length} 张图片`;
+                updateStats();
+                enableSingleSelect();
+                ocrDoneOnce = true; // 模板中已包含OCR结果，无需再次识别
+                alert("A组配置已应用，可以直接上传/识别新的B组图片。");
+            } catch (e) {
+                console.error('应用A组模板失败:', e);
+                alert("应用A组配置失败，请稍后重试。");
+            }
         }
 
         function hasValidText(item) {
@@ -2069,6 +2265,23 @@
                 input.addEventListener("input", sync);
                 input.addEventListener("change", sync);
                 sync();
+            }
+        })();
+
+        // 初始化时加载已保存的A组配置
+        (function () {
+            refreshATemplates();
+            const saveBtn = document.getElementById("saveATemplateBtn");
+            const applyBtn = document.getElementById("applyATemplateBtn");
+            if (saveBtn) {
+                saveBtn.addEventListener("click", () => {
+                    saveATemplate();
+                });
+            }
+            if (applyBtn) {
+                applyBtn.addEventListener("click", () => {
+                    applyATemplate();
+                });
             }
         })();
 
